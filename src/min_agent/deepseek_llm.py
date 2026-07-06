@@ -68,6 +68,15 @@ class DeepSeekLLM:
                 return self._invalid_action(f"模型请求了不可用工具：{tool_name}", reason, metadata)
             if not isinstance(args, dict):
                 return self._invalid_action("模型返回的工具调用缺少 args。", reason, metadata)
+
+            # V0.7: structural validation for run_command args
+            if tool_name == "run_command":
+                command_id = args.get("command_id")
+                if not isinstance(command_id, str) or not command_id:
+                    return self._invalid_action(
+                        "模型返回的 run_command 缺少有效的 command_id 字符串。", reason, metadata
+                    )
+
             return AgentAction.tool_call(tool_name=tool_name, args=args, reason=reason, metadata=metadata)
 
         if kind == "final_answer":
@@ -148,6 +157,13 @@ Allowed json outputs:
   "tool_name": "write_file",
   "args": {"path": "summary.md", "content": "content text", "mode": "create"},
   "reason": "Need to save the synthesized summary to a new workspace file"
+}
+
+{
+  "kind": "tool_call",
+  "tool_name": "run_command",
+  "args": {"command_id": "get_current_time"},
+  "reason": "Need current local time"
 }
 
 {

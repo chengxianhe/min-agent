@@ -117,6 +117,53 @@ V0.5 仍然不做：
 - 多 Agent
 - MCP、Hook、插件系统
 
+## V0.6 边界
+
+V0.6 在 V0.5 基础上只增加：
+
+- 项目上下文注入机制
+- `minagent.md` workspace 规则文件加载
+- 运行记忆（最近运行摘要）
+- 运行元信息
+- 工具目录展示
+- 7 类上下文来源的 Trace Viewer 展示
+
+V0.6 仍然不做：
+
+- 运行命令
+- 网页批准权限
+- 长期记忆
+- 多 Agent
+- MCP、Hook、插件系统
+
+## V0.7 边界
+
+V0.7 在 V0.6 基础上只增加：
+
+- `run_command` 权限工具
+- 本地预定义命令注册机制
+- `get_current_time` 当前时间动作
+- 固定 workspace、5 秒超时和 stdout/stderr 分别 4096 字符截断
+- Trace Viewer 命令执行解释性展示
+
+V0.7 仍然不做：
+
+- 模型生成的任意命令
+- 原始命令字符串或自定义参数
+- shell、管道、重定向、后台或交互式进程
+- 网页批准权限
+- 长期记忆、多 Agent、MCP、Hook、插件系统
+
+## V0.7 命令安全规则
+
+- 模型只能返回 `run_command` 和 `command_id=get_current_time`。
+- 命令由本地注册表解析为固定参数数组。
+- 未知或非法 `command_id` 必须在权限申请前拒绝。
+- 每次执行命令都必须经过 CLI 确认。
+- 命令执行不得经过 shell。
+- 用户拒绝后不能出现 `tool_started(run_command)`。
+- 超时、非零退出码、启动失败和输出截断必须形成结构化 ToolResult。
+
 ## V0.3 安全规则
 
 - `list_dir` 和 `read_file` 都只能访问指定 workspace 内路径。

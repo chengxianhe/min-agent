@@ -407,11 +407,13 @@ class V06TraceViewerSourceTest(unittest.TestCase):
         self.assertNotIn('id="context-sources"', html)
         self.assertNotIn('id="context-detail"', html)
 
-        # #original-request before #final-answer before #round-list
+        # #original-request before #run-summary before #final-answer before #round-list
         req_pos = html.index('id="original-request"')
+        summary_pos = html.index('id="run-summary"')
         final_pos = html.index('id="final-answer"')
         list_pos = html.index('id="round-list"')
-        self.assertLess(req_pos, final_pos)
+        self.assertLess(req_pos, summary_pos)
+        self.assertLess(summary_pos, final_pos)
         self.assertLess(final_pos, list_pos)
 
     def test_key_dom_ids_present(self) -> None:
@@ -485,6 +487,103 @@ class V06TraceViewerSourceTest(unittest.TestCase):
         render_end = js.index("function renderEventStep", render_start)
         render_body = js[render_start:render_end]
         self.assertIn("buildSelectedProjectContentText(output)", render_body)
+
+
+class V07TraceViewerSourceTest(unittest.TestCase):
+    """V0.7: command step rendering without regressing V0.4–V0.6."""
+
+    def test_build_display_steps_function_exists(self) -> None:
+        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        self.assertIn("function buildDisplaySteps", js)
+
+    def test_render_command_step_function_exists(self) -> None:
+        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        self.assertIn("function renderCommandStep", js)
+
+    def test_is_run_command_start_helper_exists(self) -> None:
+        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        self.assertIn("isRunCommandStart", js)
+
+    def test_command_step_css_classes_present(self) -> None:
+        css = (ROOT / "web" / "trace_viewer.css").read_text(encoding="utf-8")
+        self.assertIn(".command-step", css)
+        self.assertIn(".command-label", css)
+
+    def test_command_labels_in_source(self) -> None:
+        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        self.assertIn("预定义动作", js)
+        self.assertIn("实际命令", js)
+        self.assertIn("工作目录", js)
+        self.assertIn("exit_code", js)
+        self.assertIn("duration_ms", js)
+        self.assertIn("stdout", js)
+        self.assertIn("stderr", js)
+
+    def test_build_flow_items_still_renders_tool_run_command(self) -> None:
+        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        flow_start = js.index("function buildFlowItems")
+        flow_end = js.index("function createContextSourceCard", flow_start)
+        flow_body = js[flow_start:flow_end]
+        self.assertIn('Tool:', flow_body)
+        self.assertIn('event.input?.tool_name', flow_body)
+
+    def test_all_seven_v06_context_source_tokens_remain(self) -> None:
+        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        expected_sources = [
+            "goal",
+            "workspace-config",
+            "run-memory",
+            "run-metadata",
+            "tool-catalog",
+            "observations",
+            "project-content",
+        ]
+        for source in expected_sources:
+            self.assertIn(f'source: "{source}"', js)
+
+    def test_no_approve_reject_input_in_source(self) -> None:
+        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        forbidden = ["approveButton", "rejectButton", "command-input", "id=\"approve", "id=\"reject"]
+        for token in forbidden:
+            self.assertNotIn(token, js)
+
+    def test_build_display_steps_pairs_command_events(self) -> None:
+        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        self.assertIn("tool_started", js)
+        self.assertIn("tool_finished", js)
+        # buildDisplaySteps should reference kind: "command"
+        self.assertIn('"command"', js)
+
+    def test_command_step_uses_textcontent_not_innerhtml(self) -> None:
+        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        # The whole file should not use innerHTML (V0.6 rule, still applies)
+        self.assertNotIn("innerHTML", js)
+
+    def test_v06_v05_v04_preservation(self) -> None:
+        """Cross-check: V0.4–V0.6 tokens must still be present."""
+        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        html = (ROOT / "web" / "trace_viewer.html").read_text(encoding="utf-8")
+        css = (ROOT / "web" / "trace_viewer.css").read_text(encoding="utf-8")
+
+        v0_4_tokens = [
+            "task-entry", "task-completion", "flow-overview",
+            "summary-panel", "context-panel", "round-index",
+            "round-status-dot", "round-step-count", "step-io-grid",
+            "raw-event", "flow-node",
+        ]
+        for token in v0_4_tokens:
+            found = token in js or token in html or token in css
+            self.assertTrue(found, f"V0.4 token '{token}' no longer present")
+
+        v0_6_tokens = [
+            "context-build-intro", "context-source-grid", "context-source-card",
+            "context-source-body", "context-change", "raw-context",
+            "createContextSourceCard", "buildContextChange", "renderContextBuiltStep",
+            "本轮模型将使用 7 类上下文",
+        ]
+        for token in v0_6_tokens:
+            found = token in js or token in html or token in css
+            self.assertTrue(found, f"V0.6 token '{token}' no longer present")
 
 
 if __name__ == "__main__":

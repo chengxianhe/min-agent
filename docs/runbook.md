@@ -415,3 +415,68 @@ PYTHONPATH=src python3 -m min_agent.cli \
 - 批准后才有 `write_file` 执行。
 - 流程概览包含权限节点。
 - 控制台无 JavaScript 错误。
+
+## V0.6 上下文注入验证
+
+### Happy Path
+
+```bash
+PYTHONPATH=src python3 -m min_agent.cli \
+  "请总结 project.md" \
+  --workspace examples/workspace
+```
+
+浏览器确认：
+- Context Build 步骤展示 7 类上下文来源卡片。
+- 5 类基础上下文（用户目标、Workspace Config、运行记忆、运行元信息、工具目录）始终出现。
+- 2 类动态上下文（Working Observations、Selected Project Content）随轮次更新。
+- 卡片内容可独立滚动，窄屏下切换为单列。
+- 原始 Context JSON 默认折叠。
+
+## V0.7 命令执行验证
+
+### 批准路径
+
+```bash
+PYTHONPATH=src python3 -m min_agent.cli \
+  "现在几点？" \
+  --workspace examples/workspace \
+  --no-viewer \
+  --no-browser \
+  --step-delay 0
+```
+
+出现 `Approve? [y/N]` 提示时输入 `y`。
+
+预期：
+- CLI 展示完整权限信息：Action、Command、Workspace、Risk。
+- CLI 退出码 `0`。
+- 最终回答包含当前本地时间。
+- 运行记录包含完整事件链：`context_built → llm_decision → permission_requested → permission_resolved(approved=true) → tool_started(run_command) → tool_finished(exit_code=0) → observation_added → final_answer`。
+
+### 拒绝路径
+
+运行相同命令，出现提示时输入 `n`。
+
+预期：
+- CLI 请求权限。
+- 最终回答说明未获授权。
+- 运行记录中 `permission_resolved` 的 `approved=False`。
+- 拒绝后无 `tool_started(run_command)` 事件。
+
+### Viewer
+
+```bash
+PYTHONPATH=src python3 -m min_agent.cli \
+  "现在几点？" \
+  --workspace examples/workspace
+```
+
+浏览器确认：
+- 页面不空白。
+- V0.6 的 7 类上下文卡片仍存在。
+- 工具目录显示 4 个工具，`run_command` 标记为 permission required。
+- 命令步骤使用 `>_ COMMAND` 标签和紫色细边。
+- 命令步骤展示预定义动作、实际命令、工作目录、exit code、duration、stdout、stderr 和截断状态。
+- 命令轮次 6 个显示步骤（tool_started + tool_finished 配对为一张卡片）。
+- 无 JS 错误，无 approve/reject/input 控件。

@@ -24,7 +24,7 @@ class AgentLoop:
         workspace: str,
         max_turns: int = 8,
         step_delay_seconds: float = 0.4,
-        permission_callback: Callable[[AgentAction], bool] | None = None,
+        permission_callback: Callable[[AgentAction, dict[str, Any]], bool] | None = None,
     ) -> None:
         self.context_builder = context_builder
         self.llm = llm
@@ -33,7 +33,7 @@ class AgentLoop:
         self.workspace = workspace
         self.max_turns = max_turns
         self.step_delay_seconds = step_delay_seconds
-        self.permission_callback = permission_callback or (lambda _action: False)
+        self.permission_callback = permission_callback or (lambda _action, _details: False)
         self.observations: list[Observation] = []
         self._selected_project_content: list[str] = []
 
@@ -96,7 +96,28 @@ class AgentLoop:
             if action.tool_name is None:
                 return self._fail("模型返回了工具调用，但没有提供工具名称")
 
+            # --- V0.7: generic preflight validation ---
             spec = self.tools.get_spec(action.tool_name)
+            validation_error = self.tools.validate_call(action.tool_name, action.args)
+            if validation_error is not None:
+                observation = Observation(
+                    tool_name=action.tool_name,
+                    args=action.args,
+                    result=validation_error,
+                )
+                self.observations.append(observation)
+                self.recorder.emit(
+                    phase="observation_added",
+                    status="running",
+                    title="吸收工具结果",
+                    reason="工具参数验证失败，将错误写回上下文",
+                    output=observation.to_dict(),
+                )
+                continue
+
+            # --- V0.7: resolve permission details ---
+            permission_details = self.tools.permission_details(action.tool_name, action.args)
+
             if spec is not None and spec.requires_permission:
                 content = action.args.get("content")
                 content_preview = preview_text(content) if isinstance(content, str) and content else ""
@@ -110,11 +131,12 @@ class AgentLoop:
                         "tool_name": action.tool_name,
                         "args": action.args,
                         "preview": content_preview,
+                        "details": permission_details,
                     },
                     output={},
                 )
 
-                approved = self.permission_callback(action)
+                approved = self.permission_callback(action, permission_details)
 
                 if approved:
                     self.recorder.emit(
@@ -122,7 +144,7 @@ class AgentLoop:
                         status="completed",
                         title="权限已批准",
                         reason=f"用户批准执行 {action.tool_name}",
-                        input={"tool_name": action.tool_name, "args": action.args},
+                        input={"tool_name": action.tool_name, "args": action.args, "details": permission_details},
                         output={"approved": True},
                     )
                 else:
@@ -131,7 +153,7 @@ class AgentLoop:
                         status="interrupted",
                         title="权限被拒绝",
                         reason=f"用户拒绝执行 {action.tool_name}",
-                        input={"tool_name": action.tool_name, "args": action.args},
+                        input={"tool_name": action.tool_name, "args": action.args, "details": permission_details},
                         output={"approved": False},
                     )
 

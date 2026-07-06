@@ -90,6 +90,43 @@ Approve? [y/N]
 
 输入 `y` 批准写入，输入 `n` 或直接回车拒绝。批准后文件写入 workspace；拒绝后 Agent 会说明文件未被创建。
 
+## V0.6: 项目上下文注入
+
+V0.6 让 Agent 在每轮判断前显式整理项目上下文。使用者可以在 Trace Viewer 中看到本轮模型实际参考了 7 类上下文来源：当前用户目标、workspace 根目录的 `minagent.md`、当前 workspace 的最近运行摘要、运行元信息、工具目录、已有 observation，以及通过 `read_file` 选中的项目内容。
+
+## V0.7: 可控命令执行
+
+V0.7 验证一条最小、可观察、可审批的命令执行链。只增加一个预定义命令动作 `get_current_time`，Agent 可以识别时间查询并请求执行，每次执行前 CLI 展示完整信息并等待用户批准。
+
+运行时间查询 demo：
+
+```bash
+PYTHONPATH=src python3 -m min_agent.cli \
+  "现在几点？" \
+  --workspace examples/workspace
+```
+
+CLI 会在 Agent 提出命令执行时显示权限确认：
+
+```text
+Permission required: run_command
+Action: get_current_time
+Command: /bin/date "+%Y-%m-%d %H:%M:%S %Z"
+Workspace: examples/workspace
+Risk: 该命令只读取本机当前时间，不修改文件、不访问网络。
+
+Approve? [y/N]
+```
+
+批准后 Agent 获取当前本地时间并回答；拒绝后 Agent 说明未获授权。
+
+V0.7 的边界：
+- 只允许预定义命令动作，不接受原始命令字符串或自定义参数
+- 每次执行必须经过 CLI 确认
+- 命令不经过 shell，不支持管道、重定向、后台或交互式进程
+- 固定 workspace、5 秒超时、stdout/stderr 各 4096 字符截断
+- Trace Viewer 展示命令步骤（`>_ COMMAND` 标签、紫色细边）
+
 ## 运行 demo
 
 ```bash

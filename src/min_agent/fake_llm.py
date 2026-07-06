@@ -14,10 +14,15 @@ PATH_KEYWORDS = {
     "usage": ("usage", "使用", "方式", "用法", "运行", "命令"),
 }
 WRITE_VERBS = ("生成", "写入", "保存", "create", "write", "save")
+TIME_KEYWORDS = ("现在几点", "当前时间", "current time", "what time")
 
 
 class FakeLLM:
     def decide(self, context: AgentContext) -> AgentAction:
+        # --- V0.7: goal-first command routing for current-time queries ---
+        if self._is_time_query(context.user_goal):
+            return self._decide_time(context)
+
         mentioned_paths = self._extract_target_paths(context.user_goal)
         write_target = self._extract_write_target(context.user_goal)
         target_paths = self._source_target_paths(mentioned_paths, write_target)[:MAX_FAKE_READS]
@@ -281,3 +286,56 @@ class FakeLLM:
                 preview = " ".join(lines[:3])
                 sections.append(f"## {target_path}\n{preview}\n")
         return "\n".join(sections)
+
+    # ---- V0.7: current-time command routing ----
+
+    @staticmethod
+    def _is_time_query(user_goal: str) -> bool:
+        normalized = user_goal.lower()
+        return any(keyword in normalized for keyword in TIME_KEYWORDS)
+
+    def _decide_time(self, context: AgentContext) -> AgentAction:
+        """Route current-time queries based on the latest run_command Observation."""
+        time_obs = self._find_latest_time_observation(context.observations)
+
+        if time_obs is None:
+            if self._tool_available(context, "run_command"):
+                return AgentAction.tool_call(
+                    tool_name="run_command",
+                    args={"command_id": "get_current_time"},
+                    reason="当前时间是实时信息，需要通过允许的本地命令获取",
+                )
+            return AgentAction.final_answer(
+                message="当前 Agent 没有获取实时本地时间的工具（run_command 不可用），无法回答时间问题。",
+                reason="run_command 工具不可用",
+                success=False,
+            )
+
+        if time_obs.result.success:
+            return AgentAction.final_answer(
+                message=f"当前本地时间是 {time_obs.result.content}。",
+                reason="已通过 run_command 获得当前时间",
+            )
+
+        if time_obs.result.metadata.get("permission") == "rejected":
+            return AgentAction.final_answer(
+                message="未获授权执行获取时间的命令，无法获取当前本地时间。",
+                reason="用户拒绝了 run_command 权限",
+                success=False,
+            )
+
+        error = time_obs.result.error or "unknown error"
+        return AgentAction.final_answer(
+            message=f"获取当前时间失败：{error}",
+            reason=f"run_command 返回了错误：{error}",
+            success=False,
+        )
+
+    def _find_latest_time_observation(
+        self,
+        observations: list[Observation],
+    ) -> Observation | None:
+        for obs in reversed(observations):
+            if obs.tool_name == "run_command" and obs.args.get("command_id") == "get_current_time":
+                return obs
+        return None

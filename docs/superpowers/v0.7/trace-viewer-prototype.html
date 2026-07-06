@@ -1,0 +1,1107 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Min Agent Trace Viewer V0.7 Prototype</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #f6f7f9;
+        color: #1f2937;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+      }
+
+      .shell {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 32px;
+      }
+
+      .status,
+      .summary-panel,
+      .context-panel,
+      .layout {
+        background: #ffffff;
+        border: 1px solid #d8dee8;
+        border-radius: 8px;
+      }
+
+      .status {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+        padding: 24px;
+      }
+
+      .eyebrow {
+        margin: 0 0 8px;
+        color: #526071;
+        font-size: 14px;
+      }
+
+      h1,
+      h2,
+      h3,
+      h4,
+      p {
+        margin-top: 0;
+      }
+
+      h1 {
+        margin-bottom: 0;
+        font-size: 28px;
+        line-height: 1.2;
+      }
+
+      h2 {
+        margin-bottom: 12px;
+        font-size: 18px;
+      }
+
+      h3 {
+        margin-bottom: 6px;
+        color: #111827;
+        font-size: 15px;
+      }
+
+      h4 {
+        margin: 0 0 8px;
+        color: #526071;
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+
+      .badge {
+        border: 1px solid #a7b0bd;
+        border-radius: 999px;
+        padding: 6px 12px;
+        color: #364152;
+        background: #f9fafb;
+        font-size: 14px;
+        white-space: nowrap;
+      }
+
+      .summary-panel,
+      .context-panel {
+        margin-top: 20px;
+        padding: 24px;
+      }
+
+      .run-summary-grid {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .summary-item {
+        display: grid;
+        gap: 4px;
+        border: 1px solid #e5e7eb;
+        border-radius: 6px;
+        background: linear-gradient(180deg, #ffffff 0%, #f9fafb 100%);
+        padding: 14px;
+      }
+
+      .summary-value {
+        color: #111827;
+        font-size: 28px;
+        line-height: 1;
+      }
+
+      .summary-label {
+        color: #667085;
+        font-size: 13px;
+      }
+
+      .context-panel p {
+        margin-bottom: 0;
+        color: #334155;
+        font-size: 16px;
+        line-height: 1.7;
+      }
+
+      .result {
+        background: #eff6ff;
+        border-color: #bfdbfe;
+      }
+
+      .result p {
+        color: #1e3a5f;
+        font-size: 17px;
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: 360px minmax(0, 1fr);
+        gap: 0;
+        margin-top: 20px;
+        overflow: hidden;
+      }
+
+      .rounds-panel {
+        border-right: 1px solid #d8dee8;
+        padding: 24px;
+      }
+
+      .panel-heading {
+        margin-bottom: 18px;
+      }
+
+      .panel-heading h2 {
+        margin-bottom: 4px;
+      }
+
+      .panel-heading p {
+        margin: 0;
+        color: #667085;
+        font-size: 13px;
+      }
+
+      .round-list {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .round-list li {
+        position: relative;
+        margin-bottom: 14px;
+        padding-left: 22px;
+      }
+
+      .round-list li::before {
+        position: absolute;
+        top: 38px;
+        bottom: -22px;
+        left: 13px;
+        width: 1px;
+        background: #d8dee8;
+        content: "";
+      }
+
+      .round-list li:last-child::before {
+        display: none;
+      }
+
+      .round-list button {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+        border: 1px solid #d8dee8;
+        border-radius: 6px;
+        background: #ffffff;
+        padding: 12px;
+        text-align: left;
+      }
+
+      .round-list .active button {
+        border-color: #2563eb;
+        background: #eff6ff;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08);
+      }
+
+      .round-index {
+        display: inline-grid;
+        place-items: center;
+        width: 28px;
+        height: 28px;
+        border-radius: 999px;
+        background: #eef2ff;
+        color: #1d4ed8;
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .round-content {
+        display: grid;
+        gap: 4px;
+        min-width: 0;
+      }
+
+      .round-title {
+        overflow: hidden;
+        color: #111827;
+        font-weight: 700;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .round-list small {
+        color: #667085;
+      }
+
+      .round-step-count {
+        justify-self: end;
+        border: 1px solid #e5e7eb;
+        border-radius: 999px;
+        padding: 4px 8px;
+        color: #475467;
+        background: #f9fafb;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+
+      .detail {
+        padding: 24px;
+      }
+
+      .round-detail {
+        display: grid;
+        gap: 14px;
+      }
+
+      .flow-overview,
+      .event-step {
+        display: grid;
+        gap: 12px;
+        border: 1px solid #e5e7eb;
+        border-radius: 6px;
+        background: #ffffff;
+        padding: 16px;
+      }
+
+      .flow-overview {
+        border-color: #dbeafe;
+        background: #f8fbff;
+      }
+
+      .flow-overview h3 {
+        color: #1e3a5f;
+      }
+
+      .flow-nodes {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .flow-node {
+        position: relative;
+        border: 1px solid #bfdbfe;
+        border-radius: 999px;
+        background: #ffffff;
+        padding: 6px 10px;
+        color: #1d4ed8;
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1;
+      }
+
+      .flow-node:not(:last-child) {
+        margin-right: 18px;
+      }
+
+      .flow-node:not(:last-child)::after {
+        position: absolute;
+        top: 50%;
+        right: -22px;
+        color: #93a4bd;
+        content: "->";
+        font-weight: 700;
+        transform: translateY(-50%);
+      }
+
+      .event-step-header {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+      }
+
+      .event-step.command-step {
+        border-color: #d8b4fe;
+        border-left: 3px solid #7e22ce;
+      }
+
+      .command-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-left: 8px;
+        border-radius: 4px;
+        background: #f3e8ff;
+        padding: 2px 7px;
+        color: #6b21a8;
+        font: 700 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+
+      .event-step-number {
+        display: inline-grid;
+        place-items: center;
+        flex: 0 0 auto;
+        width: 28px;
+        height: 28px;
+        border-radius: 999px;
+        background: #eff6ff;
+        color: #1d4ed8;
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .detail-meta {
+        margin: 6px 0 0;
+        color: #667085;
+        font-size: 13px;
+      }
+
+      .context-build-intro {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        border: 1px solid #bfdbfe;
+        border-radius: 6px;
+        background: #f8fbff;
+        padding: 14px;
+      }
+
+      .context-build-intro h4 {
+        margin-bottom: 4px;
+        color: #1e3a5f;
+        font-size: 14px;
+        text-transform: none;
+      }
+
+      .context-build-intro p {
+        margin: 0;
+        color: #526071;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .context-source-count {
+        flex: 0 0 auto;
+        border-radius: 999px;
+        background: #dbeafe;
+        padding: 5px 9px;
+        color: #1d4ed8;
+        font-size: 12px;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      .context-source-group {
+        display: grid;
+        gap: 10px;
+      }
+
+      .context-source-group + .context-source-group {
+        margin-top: 4px;
+      }
+
+      .context-source-group-heading {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .context-source-group-heading h4 {
+        margin: 0;
+        color: #344054;
+        font-size: 13px;
+        text-transform: none;
+      }
+
+      .context-source-group-heading span {
+        color: #667085;
+        font-size: 12px;
+      }
+
+      .context-source-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .context-source-card {
+        display: grid;
+        grid-template-rows: auto auto minmax(0, 1fr);
+        min-width: 0;
+        min-height: 224px;
+        overflow: hidden;
+        border: 1px solid #d8dee8;
+        border-top-width: 3px;
+        border-radius: 7px;
+        background: #ffffff;
+      }
+
+      .context-source-card[data-source="goal"] {
+        grid-column: 1 / -1;
+        min-height: 150px;
+        border-top-color: #3b82f6;
+      }
+
+      .context-source-card[data-source="workspace-config"] {
+        border-top-color: #22c55e;
+      }
+
+      .context-source-card[data-source="run-memory"] {
+        border-top-color: #8b5cf6;
+      }
+
+      .context-source-card[data-source="run-metadata"] {
+        border-top-color: #64748b;
+      }
+
+      .context-source-card[data-source="tool-catalog"] {
+        border-top-color: #f97316;
+      }
+
+      .context-source-card[data-source="observations"] {
+        border-top-color: #06b6d4;
+      }
+
+      .context-source-card[data-source="project-content"] {
+        border-top-color: #eab308;
+      }
+
+      .context-source-card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 12px 12px 6px;
+      }
+
+      .context-source-card-header h5 {
+        margin: 0;
+        color: #101828;
+        font-size: 14px;
+      }
+
+      .context-source-status {
+        flex: 0 0 auto;
+        border: 1px solid #d0d5dd;
+        border-radius: 999px;
+        background: #f9fafb;
+        padding: 3px 7px;
+        color: #475467;
+        font-size: 11px;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      .context-source-status.priority {
+        border-color: #93c5fd;
+        background: #eff6ff;
+        color: #1d4ed8;
+      }
+
+      .context-source-status.loaded {
+        border-color: #86efac;
+        background: #f0fdf4;
+        color: #15803d;
+      }
+
+      .context-source-status.permission {
+        border-color: #fdba74;
+        background: #fff7ed;
+        color: #c2410c;
+      }
+
+      .context-source-summary {
+        margin: 0;
+        padding: 0 12px 10px;
+        color: #667085;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .context-source-body {
+        height: 142px;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        border-top: 1px solid #eaecf0;
+        background: #f9fafb;
+        padding: 11px 12px;
+        color: #344054;
+        font-size: 12px;
+        line-height: 1.55;
+        scrollbar-color: #cbd5e1 transparent;
+      }
+
+      .context-source-card[data-source="goal"] .context-source-body {
+        height: 54px;
+      }
+
+      .context-source-body p:last-child,
+      .context-source-body ul:last-child,
+      .context-source-body dl:last-child {
+        margin-bottom: 0;
+      }
+
+      .context-source-body code {
+        color: #1f2937;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 11px;
+      }
+
+      .context-source-body ul {
+        margin: 0;
+        padding-left: 18px;
+      }
+
+      .context-source-body li + li {
+        margin-top: 6px;
+      }
+
+      .context-source-body dl {
+        display: grid;
+        grid-template-columns: max-content minmax(0, 1fr);
+        gap: 6px 10px;
+        margin: 0;
+      }
+
+      .context-source-body dt {
+        color: #667085;
+      }
+
+      .context-source-body dd {
+        min-width: 0;
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
+
+      .context-record + .context-record {
+        margin-top: 10px;
+        border-top: 1px solid #e4e7ec;
+        padding-top: 10px;
+      }
+
+      .context-record strong {
+        display: block;
+        margin-bottom: 3px;
+        color: #1f2937;
+      }
+
+      .context-change {
+        border-left: 3px solid #06b6d4;
+        border-radius: 0 5px 5px 0;
+        background: #ecfeff;
+        padding: 9px 11px;
+        color: #155e75;
+        font-size: 12px;
+      }
+
+      .raw-context {
+        border: 1px solid #e4e7ec;
+        border-radius: 6px;
+        background: #f9fafb;
+      }
+
+      .raw-context summary {
+        cursor: pointer;
+        padding: 11px 12px;
+        color: #475467;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .raw-context pre {
+        margin: 0 12px 12px;
+      }
+
+      .step-io-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .detail-section {
+        display: grid;
+        gap: 8px;
+      }
+
+      pre {
+        max-height: 320px;
+        overflow: auto;
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        background: #f9fafb;
+        border: 1px solid #e5e7eb;
+        border-radius: 6px;
+        padding: 12px;
+        color: #364152;
+        font-size: 13px;
+      }
+
+      @media (max-width: 800px) {
+        .shell {
+          padding: 16px;
+        }
+
+        .status {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .run-summary-grid,
+        .layout,
+        .step-io-grid,
+        .context-source-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .context-source-card[data-source="goal"] {
+          grid-column: auto;
+        }
+
+        .context-build-intro,
+        .context-source-group-heading {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .rounds-panel {
+          border-right: 0;
+          border-bottom: 1px solid #d8dee8;
+        }
+
+        .round-list button {
+          grid-template-columns: auto minmax(0, 1fr);
+        }
+
+        .round-step-count {
+          grid-column: 2;
+          justify-self: start;
+        }
+
+        .flow-nodes {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .flow-node:not(:last-child) {
+          margin-right: 0;
+        }
+
+        .flow-node:not(:last-child)::after {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="status">
+        <div>
+          <p class="eyebrow">Min Agent Trace Viewer / V0.7 Prototype</p>
+          <h1>已获取当前时间</h1>
+        </div>
+        <span class="badge">completed</span>
+      </header>
+
+      <section class="summary-panel" aria-label="Run summary">
+        <div class="run-summary-grid">
+          <div class="summary-item">
+            <span class="summary-value">2</span>
+            <span class="summary-label">Agentic Loop 轮次</span>
+          </div>
+          <div class="summary-item">
+            <span class="summary-value">2</span>
+            <span class="summary-label">模型决策</span>
+          </div>
+          <div class="summary-item">
+            <span class="summary-value">1</span>
+            <span class="summary-label">工具调用</span>
+          </div>
+          <div class="summary-item">
+            <span class="summary-value">2</span>
+            <span class="summary-label">上下文构建</span>
+          </div>
+          <div class="summary-item">
+            <span class="summary-value">1</span>
+            <span class="summary-label">权限确认</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="context-panel original-request">
+        <h2>原始需求</h2>
+        <p>现在几点？</p>
+      </section>
+
+      <section class="context-panel result">
+        <h2>最终结果</h2>
+        <p>当前本地时间是 2026 年 7 月 2 日 15:30:21（CST）。执行命令前已请求权限，并在用户批准后获取结果。</p>
+      </section>
+
+      <section class="layout" aria-label="Agentic loop trace">
+        <nav class="rounds-panel" aria-label="执行轮次">
+          <div class="panel-heading">
+            <h2>执行轮次</h2>
+            <p>按 Agentic Loop 分组</p>
+          </div>
+          <ol class="round-list">
+            <li>
+              <button type="button">
+                <span class="round-index">0</span>
+                <span class="round-content">
+                  <span class="round-title">Task Started</span>
+                  <small>目标、运行信息和上下文准备</small>
+                </span>
+                <span class="round-step-count">3 steps</span>
+              </button>
+            </li>
+            <li class="active">
+              <button type="button">
+                <span class="round-index">1</span>
+                <span class="round-content">
+                  <span class="round-title">Context -> Model -> Permission -> Command</span>
+                  <small>通过受控命令获取当前时间</small>
+                </span>
+                <span class="round-step-count">6 steps</span>
+              </button>
+            </li>
+            <li>
+              <button type="button">
+                <span class="round-index">2</span>
+                <span class="round-content">
+                  <span class="round-title">Context -> Final Answer</span>
+                  <small>根据命令 Observation 回答用户</small>
+                </span>
+                <span class="round-step-count">3 steps</span>
+              </button>
+            </li>
+            <li>
+              <button type="button">
+                <span class="round-index">3</span>
+                <span class="round-content">
+                  <span class="round-title">Task Completed</span>
+                  <small>保存运行记录并结束任务</small>
+                </span>
+                <span class="round-step-count">1 step</span>
+              </button>
+            </li>
+          </ol>
+        </nav>
+
+        <aside class="detail">
+          <div class="panel-heading">
+            <h2>轮次详情</h2>
+            <p>查看本轮每一步的输入、输出和原始事件</p>
+          </div>
+          <div class="round-detail">
+            <section class="flow-overview">
+              <h3>本轮流程</h3>
+              <div class="flow-nodes">
+                <span class="flow-node">Context Build</span>
+                <span class="flow-node">Model Decision</span>
+                <span class="flow-node">Permission</span>
+                <span class="flow-node">Tool: run_command</span>
+                <span class="flow-node">Observation</span>
+              </div>
+            </section>
+
+            <article class="event-step">
+              <div class="event-step-header">
+                <span class="event-step-number">1</span>
+                <div>
+                  <h3>Context Build</h3>
+                  <p class="detail-meta">模型判断下一步前，先把不同来源的上下文组装成这一轮的完整输入。</p>
+                </div>
+              </div>
+
+              <section class="context-build-intro" aria-label="本轮上下文输入说明">
+                <div>
+                  <h4>本轮模型将使用 7 类上下文</h4>
+                  <p>每个来源独立展示；卡片内容可单独上下滚动，看到的就是本轮判断前实际加入的上下文。</p>
+                </div>
+                <span class="context-source-count">5 类基础 · 2 类动态</span>
+              </section>
+
+              <section class="context-source-group" aria-labelledby="base-context-title">
+                <div class="context-source-group-heading">
+                  <h4 id="base-context-title">运行级基础上下文 · 本轮沿用</h4>
+                  <span>运行开始时加载一次，每轮继续提供给模型</span>
+                </div>
+                <div class="context-source-grid">
+                  <article class="context-source-card" data-source="goal">
+                    <div class="context-source-card-header">
+                      <h5>当前用户目标</h5>
+                      <span class="context-source-status priority">最高优先级</span>
+                    </div>
+                    <p class="context-source-summary">用户本次明确输入，其他上下文只能辅助理解，不能覆盖这个目标。</p>
+                    <div class="context-source-body" tabindex="0">
+                      <p>现在几点？</p>
+                    </div>
+                  </article>
+
+                  <article class="context-source-card" data-source="workspace-config">
+                    <div class="context-source-card-header">
+                      <h5>Workspace Config · minagent.md</h5>
+                      <span class="context-source-status loaded">Loaded</span>
+                    </div>
+                    <p class="context-source-summary">来自 workspace 根目录的规则和偏好，不改变本地权限边界。</p>
+                    <div class="context-source-body" tabindex="0">
+                      <p><code># min-agent workspace rules</code></p>
+                      <ul>
+                        <li>需要实时信息时，只能使用工具目录中声明的能力。</li>
+                        <li>命令执行必须使用预定义动作，不能拼接任意 shell。</li>
+                        <li>执行命令前必须等待本地权限确认。</li>
+                        <li>回答中明确展示工具获得的真实结果。</li>
+                      </ul>
+                    </div>
+                  </article>
+
+                  <article class="context-source-card" data-source="run-memory">
+                    <div class="context-source-card-header">
+                      <h5>最近运行摘要</h5>
+                      <span class="context-source-status">3 条历史</span>
+                    </div>
+                    <p class="context-source-summary">只读取当前 workspace 最近的有效记录，作为辅助背景。</p>
+                    <div class="context-source-body" tabindex="0">
+                      <div class="context-record">
+                        <strong>运行 1 · completed</strong>
+                        <span>目标：总结 project.md<br>工具链：read_file → final_answer</span>
+                      </div>
+                      <div class="context-record">
+                        <strong>运行 2 · completed</strong>
+                        <span>目标：读取使用说明<br>工具链：list_dir → read_file → final_answer</span>
+                      </div>
+                      <div class="context-record">
+                        <strong>运行 3 · completed</strong>
+                        <span>目标：生成架构摘要<br>创建文件：architecture-summary.md</span>
+                      </div>
+                    </div>
+                  </article>
+
+                  <article class="context-source-card" data-source="run-metadata">
+                    <div class="context-source-card-header">
+                      <h5>运行元信息</h5>
+                      <span class="context-source-status">本轮沿用</span>
+                    </div>
+                    <p class="context-source-summary">帮助解释这次运行环境，不会直接触发任何工具。</p>
+                    <div class="context-source-body" tabindex="0">
+                      <dl>
+                        <dt>run_id</dt>
+                        <dd><code>20260702-153021-a7f3</code></dd>
+                        <dt>workspace</dt>
+                        <dd><code>examples/workspace</code></dd>
+                        <dt>decision_model</dt>
+                        <dd><code>fake</code></dd>
+                        <dt>started_at</dt>
+                        <dd><code>2026-07-02T15:30:21+08:00</code></dd>
+                        <dt>tool_count</dt>
+                        <dd>4</dd>
+                      </dl>
+                    </div>
+                  </article>
+
+                  <article class="context-source-card" data-source="tool-catalog">
+                    <div class="context-source-card-header">
+                      <h5>工具目录</h5>
+                      <span class="context-source-status permission">含权限边界</span>
+                    </div>
+                    <p class="context-source-summary">模型只能提出这些本地动作，工具执行仍由 ToolRegistry 控制。</p>
+                    <div class="context-source-body" tabindex="0">
+                      <div class="context-record">
+                        <strong><code>list_dir</code> · read-only</strong>
+                        <span>列出 workspace 内指定目录，不递归扫描。</span>
+                      </div>
+                      <div class="context-record">
+                        <strong><code>read_file</code> · read-only</strong>
+                        <span>读取 workspace 内 UTF-8 文本文件。</span>
+                      </div>
+                      <div class="context-record">
+                        <strong><code>write_file</code> · permission required</strong>
+                        <span>只创建新文本文件，执行前必须经过 CLI 确认。</span>
+                      </div>
+                      <div class="context-record">
+                        <strong><code>run_command</code> · permission required</strong>
+                        <span>只运行预定义动作；V0.7 仅允许 <code>get_current_time</code>。</span>
+                      </div>
+                    </div>
+                  </article>
+                </div>
+              </section>
+
+              <section class="context-source-group" aria-labelledby="dynamic-context-title">
+                <div class="context-source-group-heading">
+                  <h4 id="dynamic-context-title">逐轮动态上下文 · 截至本轮</h4>
+                  <span>工具结果只影响下一轮及后续判断</span>
+                </div>
+                <div class="context-change">首轮，无前序上下文；命令结果只会进入下一轮及后续判断。</div>
+                <div class="context-source-grid">
+                  <article class="context-source-card" data-source="observations">
+                    <div class="context-source-card-header">
+                      <h5>Working Observations</h5>
+                      <span class="context-source-status">0 条 · 首轮</span>
+                    </div>
+                    <p class="context-source-summary">Agent 已经获得的真实工具结果，是下一步判断的工作状态。</p>
+                    <div class="context-source-body" tabindex="0">
+                      <div class="context-record">
+                        <strong>暂无 Observation</strong>
+                        <span>Agent 尚未调用任何工具，当前时间需要通过受控命令获取。</span>
+                      </div>
+                    </div>
+                  </article>
+
+                  <article class="context-source-card" data-source="project-content">
+                    <div class="context-source-card-header">
+                      <h5>Selected Project Content</h5>
+                      <span class="context-source-status">0 files</span>
+                    </div>
+                    <p class="context-source-summary">通过 read_file 进入上下文的任务材料，与 minagent.md 配置分开。</p>
+                    <div class="context-source-body" tabindex="0">
+                      <div class="context-record">
+                        <strong>暂无已选项目内容</strong>
+                        <span>本任务不需要读取项目文件。</span>
+                      </div>
+                    </div>
+                  </article>
+                </div>
+              </section>
+
+              <details class="raw-context">
+                <summary>原始 Context JSON · 调试信息（默认折叠）</summary>
+                <pre>{
+  "user_goal": "现在几点？",
+  "run_metadata": {"decision_model": "fake", "tool_count": 4},
+  "workspace_config": {"status": "loaded", "path": "minagent.md"},
+  "run_memory": {"status": "loaded", "summary_count": 3},
+  "working_observations": {"count": 0},
+  "selected_project_content": []
+}</pre>
+              </details>
+            </article>
+
+            <article class="event-step">
+              <div class="event-step-header">
+                <span class="event-step-number">2</span>
+                <div>
+                  <h3>Model Decision</h3>
+                  <p class="detail-meta">模型基于本轮上下文选择预定义命令动作，但不能直接生成或执行任意命令。</p>
+                </div>
+              </div>
+              <div class="step-io-grid">
+                <section class="detail-section">
+                  <h4>Input</h4>
+                  <pre>{
+  "context_snapshot": "round_1_context_built",
+  "source_count": 7,
+  "observation_count": 0,
+  "selected_project_content_count": 0
+}</pre>
+                </section>
+                <section class="detail-section">
+                  <h4>Output</h4>
+                  <pre>{
+  "kind": "tool_call",
+  "tool_name": "run_command",
+  "args": {"command_id": "get_current_time"},
+  "reason": "当前时间是实时信息，需要通过允许的本地命令获取"
+}</pre>
+                </section>
+              </div>
+            </article>
+
+            <article class="event-step">
+              <div class="event-step-header">
+                <span class="event-step-number">3</span>
+                <div>
+                  <h3>Permission Requested</h3>
+                  <p class="detail-meta">系统将预定义动作解析为真实命令，并在执行前向用户展示命令、原因和工作目录。</p>
+                </div>
+              </div>
+              <div class="step-io-grid">
+                <section class="detail-section">
+                  <h4>权限申请</h4>
+                  <pre>Tool: run_command
+Action: get_current_time
+Command: /bin/date "+%Y-%m-%d %H:%M:%S %Z"
+Workspace: examples/workspace</pre>
+                </section>
+                <section class="detail-section">
+                  <h4>风险说明</h4>
+                  <p>该预定义命令只读取运行机器的当前时间，不修改文件、不访问网络，也不经过 shell 解释。</p>
+                </section>
+              </div>
+            </article>
+
+            <article class="event-step">
+              <div class="event-step-header">
+                <span class="event-step-number">4</span>
+                <div>
+                  <h3>Permission Resolved</h3>
+                  <p class="detail-meta">用户在 CLI 输入 <code>y</code>，允许本次命令执行。</p>
+                </div>
+              </div>
+              <div class="step-io-grid">
+                <section class="detail-section">
+                  <h4>Input</h4>
+                  <pre>{"tool_name":"run_command","command_id":"get_current_time"}</pre>
+                </section>
+                <section class="detail-section">
+                  <h4>Output</h4>
+                  <pre>{"approved":true,"source":"cli"}</pre>
+                </section>
+              </div>
+            </article>
+
+            <article class="event-step command-step">
+              <div class="event-step-header">
+                <span class="event-step-number">5</span>
+                <div>
+                  <h3>Tool Execution <span class="command-label">&gt;_ COMMAND</span></h3>
+                  <p class="detail-meta">命令仍属于 Tool Call；通过标签和细边区分类型，不改变步骤卡片尺寸。</p>
+                </div>
+              </div>
+              <div class="step-io-grid">
+                <section class="detail-section">
+                  <h4>Input</h4>
+                  <pre>预定义动作  get_current_time
+实际命令    /bin/date "+%Y-%m-%d %H:%M:%S %Z"
+工作目录    examples/workspace</pre>
+                </section>
+                <section class="detail-section">
+                  <h4>Output</h4>
+                  <pre>stdout     2026-07-02 15:30:21 CST
+stderr     (empty)
+exit_code  0
+duration   18 ms
+truncated  false</pre>
+                </section>
+              </div>
+            </article>
+
+            <article class="event-step">
+              <div class="event-step-header">
+                <span class="event-step-number">6</span>
+                <div>
+                  <h3>Observation Added</h3>
+                  <p class="detail-meta">命令结果作为真实 Observation 进入下一轮上下文，模型不会直接读取系统时间。</p>
+                </div>
+              </div>
+              <div class="step-io-grid">
+                <section class="detail-section">
+                  <h4>Input</h4>
+                  <pre>{"tool_name":"run_command","command_id":"get_current_time"}</pre>
+                </section>
+                <section class="detail-section">
+                  <h4>Output</h4>
+                  <pre>{"success":true,"content":"2026-07-02 15:30:21 CST"}</pre>
+                </section>
+              </div>
+            </article>
+          </div>
+        </aside>
+      </section>
+    </main>
+  </body>
+</html>

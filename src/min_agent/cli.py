@@ -5,9 +5,10 @@ import os
 import time
 import webbrowser
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 from min_agent.agent_loop import AgentLoop
+from min_agent.command_registry import build_default_command_registry
 from min_agent.context_builder import ContextBuilder
 from min_agent.context_loader import ContextLoader
 from min_agent.decision_model import DecisionModel
@@ -15,10 +16,11 @@ from min_agent.deepseek_client import DeepSeekClient
 from min_agent.deepseek_llm import DeepSeekLLM
 from min_agent.fake_llm import FakeLLM
 from min_agent.tool_registry import ToolRegistry
+from min_agent.tools.command import run_command
 from min_agent.tools.workspace import ensure_workspace, list_dir, read_file, write_file
 from min_agent.trace_recorder import TraceRecorder
 from min_agent.trace_server import TraceServer
-from min_agent.types import ToolSpec
+from min_agent.types import AgentAction, ToolSpec
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -76,6 +78,7 @@ def build_decision_model(args: argparse.Namespace) -> tuple[DecisionModel | None
 
 
 def build_tool_registry(workspace: Path) -> ToolRegistry:
+    command_registry = build_default_command_registry()
     registry = ToolRegistry()
     registry.register(
         ToolSpec(
@@ -104,6 +107,17 @@ def build_tool_registry(workspace: Path) -> ToolRegistry:
         ),
         lambda tool_args: write_file(workspace, tool_args),
     )
+    registry.register(
+        ToolSpec(
+            name="run_command",
+            description="Run one predefined local command action after approval.",
+            args_schema={"command_id": "string"},
+            requires_permission=True,
+        ),
+        lambda tool_args: run_command(workspace, tool_args, command_registry),
+        validator=command_registry.validate_args,
+        permission_describer=lambda tool_args: command_registry.permission_details(tool_args, workspace),
+    )
     return registry
 
 
@@ -111,13 +125,18 @@ def preview_text(value: str, limit: int = 200) -> str:
     return value if len(value) <= limit else value[:limit] + "..."
 
 
-def confirm_tool_call(tool_name: str, args: dict[str, object], reason: str) -> bool:
+def confirm_tool_call(action: AgentAction, details: dict[str, Any]) -> bool:
     print()
-    print(f"Permission required: {tool_name}")
-    if "path" in args:
-        print(f"Path: {args['path']}")
-    print(f"Reason: {reason}")
-    content = args.get("content")
+    print(f"Permission required: {action.tool_name}")
+    if action.tool_name == "run_command" and details:
+        print(f"Action: {details.get('command_id', 'unknown')}")
+        print(f"Command: {details.get('command', 'unknown')}")
+        print(f"Workspace: {details.get('workspace', 'unknown')}")
+        print(f"Risk: {details.get('risk', 'unknown')}")
+    elif "path" in action.args:
+        print(f"Path: {action.args['path']}")
+    print(f"Reason: {action.reason}")
+    content = action.args.get("content")
     if isinstance(content, str) and content:
         print("Preview:")
         print(preview_text(content))
@@ -180,11 +199,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             recorder=recorder,
             workspace=str(workspace),
             step_delay_seconds=args.step_delay,
-            permission_callback=lambda action: confirm_tool_call(
-                action.tool_name or "unknown",
-                action.args,
-                action.reason,
-            ),
+            permission_callback=lambda action, details: confirm_tool_call(action, details),
         )
         result = loop.run(args.goal)
         record_path = recorder.save(args.runs_dir, status="completed" if result.success else "failed")

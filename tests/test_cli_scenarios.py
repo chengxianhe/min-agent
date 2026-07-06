@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -292,6 +293,216 @@ class CliContextInjectionTest(unittest.TestCase):
         self.assertIsNotNone(run_memory)
         self.assertEqual(run_memory["status"], "loaded")
         self.assertGreaterEqual(run_memory["summary_count"], 1)
+
+    # ---- V0.7: command execution scenarios ----
+
+    def test_approved_time_scenario_produces_correct_event_chain(self) -> None:
+        from min_agent.cli import main
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "workspace"
+            runs = root / "runs"
+            workspace.mkdir()
+
+            fake_time = "2026-07-03 10:30:21 CST"
+            fake_result = subprocess.CompletedProcess(
+                args=["/bin/date", "+%Y-%m-%d %H:%M:%S %Z"],
+                returncode=0,
+                stdout=fake_time + "\n",
+                stderr="",
+            )
+
+            with patch("builtins.input", return_value="y"), \
+                 patch("subprocess.run", return_value=fake_result):
+                exit_code = main(
+                    [
+                        "现在几点？",
+                        "--workspace",
+                        str(workspace),
+                        "--runs-dir",
+                        str(runs),
+                        "--no-viewer",
+                        "--no-browser",
+                        "--step-delay",
+                        "0",
+                    ]
+                )
+            record = load_single_run_record(runs)
+
+        event_phases = phases(record)
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(record["status"], "completed")
+
+        # Verify ordered subsequence
+        self.assertIn("context_built", event_phases)
+        self.assertIn("llm_decision", event_phases)
+        self.assertIn("permission_requested", event_phases)
+        self.assertIn("permission_resolved", event_phases)
+        self.assertIn("tool_started", event_phases)
+        self.assertIn("tool_finished", event_phases)
+        self.assertIn("observation_added", event_phases)
+        self.assertIn("final_answer", event_phases)
+
+        # Check order: permission_requested before permission_resolved before tool_started
+        req_idx = event_phases.index("permission_requested")
+        res_idx = event_phases.index("permission_resolved")
+        start_idx = next(
+            i for i, e in enumerate(record["events"])
+            if e["phase"] == "tool_started" and e["input"].get("tool_name") == "run_command"
+        )
+        self.assertLess(req_idx, res_idx)
+        self.assertLess(res_idx, start_idx)
+
+        # Permission details present
+        perm_req = record["events"][req_idx]
+        details = perm_req["input"].get("details", {})
+        self.assertIn("command", details)
+
+        # Tool finished has exit_code 0
+        tool_finished = [
+            e for e in record["events"]
+            if e["phase"] == "tool_finished" and e["output"]["metadata"].get("command_id") == "get_current_time"
+        ]
+        self.assertEqual(len(tool_finished), 1)
+        self.assertEqual(tool_finished[0]["output"]["metadata"]["exit_code"], 0)
+
+        # Final answer contains the fake time
+        final_answer_events = [
+            e for e in record["events"] if e["phase"] == "final_answer"
+        ]
+        self.assertIn(fake_time, final_answer_events[0]["output"]["message"])
+
+        # Two context_built events; second contains the command result in observations
+        context_events = [e for e in record["events"] if e["phase"] == "context_built"]
+        self.assertEqual(len(context_events), 2)
+        observations = context_events[1]["output"]["observations"]
+        self.assertTrue(any(
+            obs["tool_name"] == "run_command"
+            and obs["result"]["content"] == fake_time
+            for obs in observations
+        ))
+
+    def test_rejected_time_scenario_never_starts_command(self) -> None:
+        from min_agent.cli import main
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "workspace"
+            runs = root / "runs"
+            workspace.mkdir()
+
+            with patch("builtins.input", return_value="n"):
+                exit_code = main(
+                    [
+                        "现在几点？",
+                        "--workspace",
+                        str(workspace),
+                        "--runs-dir",
+                        str(runs),
+                        "--no-viewer",
+                        "--no-browser",
+                        "--step-delay",
+                        "0",
+                    ]
+                )
+            record = load_single_run_record(runs)
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(record["status"], "failed")
+
+        event_phases = phases(record)
+        self.assertIn("permission_requested", event_phases)
+        self.assertIn("permission_resolved", event_phases)
+
+        # approved is False
+        resolved = [
+            e for e in record["events"] if e["phase"] == "permission_resolved"
+        ]
+        self.assertFalse(resolved[0]["output"]["approved"])
+
+        # No tool_started for run_command
+        run_command_starts = [
+            e for e in record["events"]
+            if e["phase"] == "tool_started" and e["input"].get("tool_name") == "run_command"
+        ]
+        self.assertEqual(run_command_starts, [])
+
+    def test_unknown_command_id_scenario_finishes_without_crash(self) -> None:
+        from min_agent.cli import main
+        from min_agent.fake_llm import FakeLLM
+        from min_agent.types import AgentAction, AgentContext
+
+        class BadCommandModel(FakeLLM):
+            def decide(self, context: AgentContext) -> AgentAction:
+                if not context.observations:
+                    return AgentAction.tool_call(
+                        "run_command",
+                        {"command_id": "delete_everything"},
+                        "need to delete",
+                    )
+                return AgentAction.final_answer("failed", "bad command", success=False)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "workspace"
+            runs = root / "runs"
+            workspace.mkdir()
+
+            with patch("min_agent.cli.FakeLLM", return_value=BadCommandModel()):
+                exit_code = main(
+                    [
+                        "现在几点？",
+                        "--workspace",
+                        str(workspace),
+                        "--runs-dir",
+                        str(runs),
+                        "--no-viewer",
+                        "--no-browser",
+                        "--step-delay",
+                        "0",
+                    ]
+                )
+            record = load_single_run_record(runs)
+
+        self.assertEqual(exit_code, 0)
+        # Should fail gracefully
+        self.assertNotIn("tool_started", phases(record))
+        self.assertIn("observation_added", phases(record))
+
+    def test_command_timeout_scenario_finishes_without_crash(self) -> None:
+        from min_agent.cli import main
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "workspace"
+            runs = root / "runs"
+            workspace.mkdir()
+
+            with patch("builtins.input", return_value="y"), \
+                 patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd=["/bin/date"], timeout=5.0)):
+                exit_code = main(
+                    [
+                        "现在几点？",
+                        "--workspace",
+                        str(workspace),
+                        "--runs-dir",
+                        str(runs),
+                        "--no-viewer",
+                        "--no-browser",
+                        "--step-delay",
+                        "0",
+                    ]
+                )
+            record = load_single_run_record(runs)
+
+        self.assertEqual(exit_code, 0)
+        # Should have tool_started and tool_finished with failure
+        tool_finished = [
+            e for e in record["events"] if e["phase"] == "tool_finished"
+        ]
+        self.assertEqual(len(tool_finished), 1)
+        self.assertTrue(tool_finished[0]["output"]["metadata"]["timed_out"])
 
     def test_write_file_permission_still_required(self) -> None:
         from min_agent.cli import main

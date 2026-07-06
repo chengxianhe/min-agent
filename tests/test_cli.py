@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 
 class CliTest(unittest.TestCase):
-    def test_cli_registers_three_tools_including_write_file(self) -> None:
+    def test_cli_registers_four_tools_including_run_command(self) -> None:
         from min_agent.cli import build_tool_registry
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -23,7 +23,7 @@ class CliTest(unittest.TestCase):
             registry = build_tool_registry(workspace)
 
         tool_names = {tool.name for tool in registry.list_specs()}
-        self.assertEqual(tool_names, {"read_file", "list_dir", "write_file"})
+        self.assertEqual(tool_names, {"read_file", "list_dir", "write_file", "run_command"})
 
     def test_write_file_spec_requires_permission(self) -> None:
         from min_agent.cli import build_tool_registry
@@ -38,6 +38,32 @@ class CliTest(unittest.TestCase):
         self.assertFalse(specs["read_file"].requires_permission)
         self.assertFalse(specs["list_dir"].requires_permission)
         self.assertTrue(specs["write_file"].requires_permission)
+        self.assertTrue(specs["run_command"].requires_permission)
+
+    def test_run_command_schema_is_exact(self) -> None:
+        from min_agent.cli import build_tool_registry
+
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp) / "workspace"
+            workspace.mkdir()
+
+            registry = build_tool_registry(workspace)
+
+        spec = registry.get_spec("run_command")
+        self.assertEqual(spec.args_schema, {"command_id": "string"})
+
+    def test_run_command_validator_blocks_unknown_id(self) -> None:
+        from min_agent.cli import build_tool_registry
+
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp) / "workspace"
+            workspace.mkdir()
+
+            registry = build_tool_registry(workspace)
+
+        error = registry.validate_call("run_command", {"command_id": "delete_everything"})
+        self.assertIsNotNone(error)
+        self.assertEqual(error.error, "unknown_command_id")
 
     def test_cli_runs_without_viewer_and_saves_record(self) -> None:
         from min_agent.cli import main
@@ -177,35 +203,77 @@ class CliTest(unittest.TestCase):
 
     def test_confirm_tool_call_returns_true_for_y(self) -> None:
         from min_agent.cli import confirm_tool_call
+        from min_agent.types import AgentAction
 
+        action = AgentAction.tool_call("write_file", {"path": "summary.md"}, "need to write")
         with patch("builtins.input", return_value="y"):
-            result = confirm_tool_call("write_file", {"path": "summary.md"}, "need to write")
+            result = confirm_tool_call(action, {})
 
         self.assertTrue(result)
 
     def test_confirm_tool_call_returns_true_for_uppercase_y(self) -> None:
         from min_agent.cli import confirm_tool_call
+        from min_agent.types import AgentAction
 
+        action = AgentAction.tool_call("write_file", {"path": "summary.md"}, "need to write")
         with patch("builtins.input", return_value="Y"):
-            result = confirm_tool_call("write_file", {"path": "summary.md"}, "need to write")
+            result = confirm_tool_call(action, {})
 
         self.assertTrue(result)
 
     def test_confirm_tool_call_returns_false_for_empty_input(self) -> None:
         from min_agent.cli import confirm_tool_call
+        from min_agent.types import AgentAction
 
+        action = AgentAction.tool_call("write_file", {"path": "summary.md"}, "need to write")
         with patch("builtins.input", return_value=""):
-            result = confirm_tool_call("write_file", {"path": "summary.md"}, "need to write")
+            result = confirm_tool_call(action, {})
 
         self.assertFalse(result)
 
     def test_confirm_tool_call_returns_false_for_n(self) -> None:
         from min_agent.cli import confirm_tool_call
+        from min_agent.types import AgentAction
 
+        action = AgentAction.tool_call("write_file", {"path": "summary.md"}, "need to write")
         with patch("builtins.input", return_value="n"):
-            result = confirm_tool_call("write_file", {"path": "summary.md"}, "need to write")
+            result = confirm_tool_call(action, {})
 
         self.assertFalse(result)
+
+    def test_confirm_tool_call_renders_command_details(self) -> None:
+        from min_agent.cli import confirm_tool_call
+        from min_agent.types import AgentAction
+        import io
+        import sys as _sys
+
+        action = AgentAction.tool_call(
+            "run_command",
+            {"command_id": "get_current_time"},
+            "need current time",
+        )
+        details = {
+            "command_id": "get_current_time",
+            "command": '/bin/date "+%Y-%m-%d %H:%M:%S %Z"',
+            "workspace": "/tmp/ws",
+            "risk": "该命令只读取本机当前时间，不修改文件、不访问网络。",
+        }
+
+        captured = io.StringIO()
+        old_stdout = _sys.stdout
+        _sys.stdout = captured
+        try:
+            with patch("builtins.input", return_value="y"):
+                result = confirm_tool_call(action, details)
+        finally:
+            _sys.stdout = old_stdout
+
+        self.assertTrue(result)
+        output = captured.getvalue()
+        self.assertIn("Permission required: run_command", output)
+        self.assertIn("Action: get_current_time", output)
+        self.assertIn("Command: /bin/date", output)
+        self.assertIn("Risk: 该命令只读取", output)
 
     def test_preview_text_truncates_content_longer_than_200(self) -> None:
         from min_agent.cli import preview_text

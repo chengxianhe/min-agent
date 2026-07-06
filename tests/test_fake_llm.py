@@ -534,6 +534,198 @@ class FakeLLMTest(unittest.TestCase):
         self.assertFalse(action.success)
         self.assertIn("拒绝了写文件权限", action.message or "")
 
+    # ---- V0.7: current-time command routing ----
+
+    def test_chinese_time_goal_requests_run_command(self) -> None:
+        from min_agent.fake_llm import FakeLLM
+        from min_agent.types import AgentContext, ToolSpec
+
+        llm = FakeLLM()
+        context = AgentContext(
+            user_goal="现在几点？",
+            workspace="examples/workspace",
+            available_tools=[
+                ToolSpec(name="run_command", description="Run command", requires_permission=True),
+            ],
+            observations=[],
+        )
+
+        action = llm.decide(context)
+
+        self.assertEqual(action.kind, "tool_call")
+        self.assertEqual(action.tool_name, "run_command")
+        self.assertEqual(action.args, {"command_id": "get_current_time"})
+
+    def test_english_time_goal_requests_run_command(self) -> None:
+        from min_agent.fake_llm import FakeLLM
+        from min_agent.types import AgentContext, ToolSpec
+
+        llm = FakeLLM()
+        context = AgentContext(
+            user_goal="what time is it now?",
+            workspace="examples/workspace",
+            available_tools=[
+                ToolSpec(name="run_command", description="Run command", requires_permission=True),
+            ],
+            observations=[],
+        )
+
+        action = llm.decide(context)
+
+        self.assertEqual(action.kind, "tool_call")
+        self.assertEqual(action.tool_name, "run_command")
+        self.assertEqual(action.args, {"command_id": "get_current_time"})
+
+    def test_current_time_keyword_triggers_run_command(self) -> None:
+        from min_agent.fake_llm import FakeLLM
+        from min_agent.types import AgentContext, ToolSpec
+
+        llm = FakeLLM()
+        context = AgentContext(
+            user_goal="当前时间",
+            workspace="examples/workspace",
+            available_tools=[
+                ToolSpec(name="run_command", description="Run command", requires_permission=True),
+            ],
+            observations=[],
+        )
+
+        action = llm.decide(context)
+
+        self.assertEqual(action.kind, "tool_call")
+        self.assertEqual(action.tool_name, "run_command")
+
+    def test_successful_time_observation_produces_final_answer(self) -> None:
+        from min_agent.fake_llm import FakeLLM
+        from min_agent.types import AgentContext, Observation, ToolResult, ToolSpec
+
+        llm = FakeLLM()
+        context = AgentContext(
+            user_goal="现在几点？",
+            workspace="examples/workspace",
+            available_tools=[
+                ToolSpec(name="run_command", description="Run command", requires_permission=True),
+            ],
+            observations=[
+                Observation(
+                    tool_name="run_command",
+                    args={"command_id": "get_current_time"},
+                    result=ToolResult(
+                        success=True,
+                        content="2026-07-03 10:30:21 CST",
+                        metadata={"exit_code": 0},
+                    ),
+                ),
+            ],
+        )
+
+        action = llm.decide(context)
+
+        self.assertEqual(action.kind, "final_answer")
+        self.assertTrue(action.success)
+        self.assertIn("2026-07-03 10:30:21", action.message or "")
+
+    def test_permission_rejected_time_produces_failed_final_answer(self) -> None:
+        from min_agent.fake_llm import FakeLLM
+        from min_agent.types import AgentContext, Observation, ToolResult, ToolSpec
+
+        llm = FakeLLM()
+        context = AgentContext(
+            user_goal="现在几点？",
+            workspace="examples/workspace",
+            available_tools=[
+                ToolSpec(name="run_command", description="Run command", requires_permission=True),
+            ],
+            observations=[
+                Observation(
+                    tool_name="run_command",
+                    args={"command_id": "get_current_time"},
+                    result=ToolResult(
+                        success=False,
+                        error="permission denied by user",
+                        metadata={"permission": "rejected"},
+                    ),
+                ),
+            ],
+        )
+
+        action = llm.decide(context)
+
+        self.assertEqual(action.kind, "final_answer")
+        self.assertFalse(action.success)
+        self.assertIn("未获授权", action.message or "")
+
+    def test_command_timeout_produces_failed_final_answer(self) -> None:
+        from min_agent.fake_llm import FakeLLM
+        from min_agent.types import AgentContext, Observation, ToolResult, ToolSpec
+
+        llm = FakeLLM()
+        context = AgentContext(
+            user_goal="现在几点？",
+            workspace="examples/workspace",
+            available_tools=[
+                ToolSpec(name="run_command", description="Run command", requires_permission=True),
+            ],
+            observations=[
+                Observation(
+                    tool_name="run_command",
+                    args={"command_id": "get_current_time"},
+                    result=ToolResult(
+                        success=False,
+                        error="command_timeout",
+                        metadata={"timed_out": True},
+                    ),
+                ),
+            ],
+        )
+
+        action = llm.decide(context)
+
+        self.assertEqual(action.kind, "final_answer")
+        self.assertFalse(action.success)
+
+    def test_run_command_unavailable_produces_failed_final_answer(self) -> None:
+        from min_agent.fake_llm import FakeLLM
+        from min_agent.types import AgentContext, ToolSpec
+
+        llm = FakeLLM()
+        context = AgentContext(
+            user_goal="现在几点？",
+            workspace="examples/workspace",
+            available_tools=[
+                ToolSpec(name="read_file", description="Read file"),
+                ToolSpec(name="list_dir", description="List directory"),
+            ],
+            observations=[],
+        )
+
+        action = llm.decide(context)
+
+        self.assertEqual(action.kind, "final_answer")
+        self.assertFalse(action.success)
+        self.assertIn("实时", action.message or "")
+
+    def test_time_goal_falls_back_to_file_discovery_when_no_time_keyword(self) -> None:
+        from min_agent.fake_llm import FakeLLM
+        from min_agent.types import AgentContext, ToolSpec
+
+        llm = FakeLLM()
+        context = AgentContext(
+            user_goal="请总结一下",
+            workspace="examples/workspace",
+            available_tools=[
+                ToolSpec(name="list_dir", description="List directory"),
+                ToolSpec(name="read_file", description="Read file"),
+            ],
+            observations=[],
+        )
+
+        action = llm.decide(context)
+
+        # Should fall through to existing file-discovery logic
+        self.assertEqual(action.kind, "tool_call")
+        self.assertEqual(action.tool_name, "list_dir")
+
     def test_no_write_file_when_write_tool_unavailable(self) -> None:
         from min_agent.fake_llm import FakeLLM
         from min_agent.types import AgentContext, Observation, ToolResult, ToolSpec

@@ -694,6 +694,25 @@ pre {
   margin: 0 12px 12px;
 }
 
+/* ===== V0.7 命令步骤样式 ===== */
+
+.event-step.command-step {
+  border-color: #d8b4fe;
+  border-left: 3px solid #7e22ce;
+}
+
+.command-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+  border-radius: 4px;
+  background: #f3e8ff;
+  padding: 2px 7px;
+  color: #6b21a8;
+  font: 700 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 @media (max-width: 800px) {
   .shell {
     padding: 16px;

@@ -136,11 +136,13 @@ function enrichRound(round) {
     ? "final_answer"
     : toolStarted?.input?.tool_name || finalAnswer?.phase || decision?.output?.tool_name || "观察事件";
 
+  const displaySteps = buildDisplaySteps(round.events);
+
   return {
     ...round,
     latestStatus: latest?.status || "waiting",
     action,
-    eventCount: round.events.length,
+    eventCount: displaySteps.length,
   };
 }
 
@@ -399,6 +401,8 @@ function renderRoundDetail() {
     return;
   }
 
+  const displaySteps = buildDisplaySteps(round.events);
+
   const heading = document.createElement("div");
   heading.className = "detail-heading";
 
@@ -407,7 +411,7 @@ function renderRoundDetail() {
 
   const meta = document.createElement("p");
   meta.className = "detail-meta";
-  meta.textContent = `${round.action} · ${round.latestStatus} · ${round.eventCount} 步`;
+  meta.textContent = `${round.action} · ${round.latestStatus} · ${displaySteps.length} 步`;
 
   heading.append(title, meta);
   detail.append(heading);
@@ -415,8 +419,12 @@ function renderRoundDetail() {
 
   const steps = document.createElement("div");
   steps.className = "round-steps";
-  for (const event of round.events) {
-    renderEventStep(steps, event);
+  for (const step of displaySteps) {
+    if (step.kind === "command") {
+      renderCommandStep(steps, step.startedEvent, step.finishedEvent);
+    } else {
+      renderEventStep(steps, step.event);
+    }
   }
   detail.append(steps);
 }
@@ -912,6 +920,104 @@ function renderFinalAnswer() {
   const finalEvent = state.events.find((event) => event.phase === "final_answer");
   document.querySelector("#final-answer").textContent =
     finalEvent?.output?.message || "任务完成后展示最终回答。";
+}
+
+// ---- V0.7: command step display ----
+
+function isRunCommandStart(event) {
+  return event.phase === "tool_started" && event.input?.tool_name === "run_command";
+}
+
+function buildDisplaySteps(events) {
+  const steps = [];
+  let index = 0;
+  while (index < events.length) {
+    const event = events[index];
+    if (isRunCommandStart(event)) {
+      const nextEvent = events[index + 1];
+      const finishedEvent = (nextEvent && nextEvent.phase === "tool_finished") ? nextEvent : null;
+      steps.push({ kind: "command", startedEvent: event, finishedEvent: finishedEvent });
+      index += finishedEvent ? 2 : 1;
+    } else {
+      steps.push({ kind: "event", event: event });
+      index += 1;
+    }
+  }
+  return steps;
+}
+
+function renderCommandStep(container, startedEvent, finishedEvent) {
+  const step = document.createElement("section");
+  step.className = "event-step command-step";
+
+  const header = document.createElement("div");
+  header.className = "event-step-header";
+
+  const number = document.createElement("span");
+  number.className = "event-step-number";
+  number.textContent = String(startedEvent.step);
+
+  const heading = document.createElement("div");
+  const title = document.createElement("h3");
+  title.textContent = startedEvent.title;
+
+  const label = document.createElement("span");
+  label.className = "command-label";
+  label.textContent = ">_ COMMAND";
+
+  const meta = document.createElement("p");
+  meta.className = "detail-meta";
+  meta.textContent = `${moduleForPhase(startedEvent.phase)} · ${startedEvent.phase} · ${startedEvent.status}`;
+
+  heading.append(title, label);
+  header.append(number, heading);
+  step.append(header);
+  step.append(meta);
+
+  if (startedEvent.reason) {
+    appendSection(step, "为什么发生", startedEvent.reason);
+  }
+
+  // Build command input details
+  const inputDetails = {};
+  const metadata = finishedEvent?.output?.metadata || {};
+  if (metadata.command_id) {
+    inputDetails["预定义动作"] = metadata.command_id;
+  }
+  if (metadata.display_command) {
+    inputDetails["实际命令"] = metadata.display_command;
+  }
+  inputDetails["工作目录"] = metadata.workspace || "(unknown)";
+
+  // Build command output details
+  const outputDetails = {};
+  if (finishedEvent) {
+    outputDetails["stdout"] = metadata.stdout || "(empty)";
+    outputDetails["stderr"] = metadata.stderr || "(empty)";
+    outputDetails["exit_code"] = metadata.exit_code != null ? String(metadata.exit_code) : "N/A";
+    outputDetails["duration"] = metadata.duration_ms != null ? `${metadata.duration_ms} ms` : "N/A";
+    outputDetails["truncated"] = (metadata.stdout_truncated || metadata.stderr_truncated) ? "true" : "false";
+  } else {
+    outputDetails["status"] = "等待执行完成...";
+  }
+
+  const ioGrid = document.createElement("div");
+  ioGrid.className = "step-io-grid";
+  appendSection(ioGrid, "输入", inputDetails);
+  appendSection(ioGrid, "输出", outputDetails);
+  step.append(ioGrid);
+
+  // Raw event details for both events
+  const rawSection = appendSectionShell(step, "原始事件 JSON");
+  rawSection.classList.add("raw-event");
+  const rawPre = document.createElement("pre");
+  const rawData = finishedEvent
+    ? [startedEvent, finishedEvent]
+    : [startedEvent];
+  rawPre.textContent = JSON.stringify(rawData, null, 2);
+  rawSection.append(rawPre);
+
+  container.append(step);
 }
 
 render();

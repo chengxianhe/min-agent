@@ -309,6 +309,58 @@ class ContextLoaderToolCatalogTest(unittest.TestCase):
         self.assertFalse(catalog[0].requires_permission)
         self.assertFalse(catalog[1].requires_permission)
 
+    def test_build_tool_catalog_includes_run_command_with_schema(self) -> None:
+        from min_agent.context_loader import ContextLoader
+        from min_agent.types import ToolSpec
+
+        tools = [
+            ToolSpec(
+                name="run_command",
+                description="Run one predefined local command action after approval.",
+                args_schema={"command_id": "string"},
+                requires_permission=True,
+            ),
+        ]
+        loader = ContextLoader(workspace="ws", runs_dir="runs", decision_model="fake")
+        catalog = loader.build_tool_catalog(tools)
+
+        self.assertEqual(len(catalog), 1)
+        entry = catalog[0]
+        self.assertEqual(entry.name, "run_command")
+        self.assertTrue(entry.requires_permission)
+        self.assertEqual(entry.args_schema, {"command_id": "string"})
+
+    def test_build_tool_catalog_empty_args_schema_defaults_to_empty_dict(self) -> None:
+        from min_agent.context_loader import ContextLoader
+        from min_agent.types import ToolSpec
+
+        tools = [
+            ToolSpec(name="read_file", description="Read file", requires_permission=False),
+        ]
+        loader = ContextLoader(workspace="ws", runs_dir="runs", decision_model="fake")
+        catalog = loader.build_tool_catalog(tools)
+
+        self.assertEqual(catalog[0].args_schema, {})
+
+    def test_build_tool_catalog_run_command_requires_permission(self) -> None:
+        from min_agent.context_loader import ContextLoader
+        from min_agent.types import ToolSpec
+
+        tools = [
+            ToolSpec(
+                name="run_command",
+                description="Run one predefined local command action after approval.",
+                args_schema={"command_id": "string"},
+                requires_permission=True,
+            ),
+        ]
+        loader = ContextLoader(workspace="ws", runs_dir="runs", decision_model="fake")
+        catalog = loader.build_tool_catalog(tools)
+
+        self.assertEqual(len(catalog), 1)
+        self.assertEqual(catalog[0].name, "run_command")
+        self.assertTrue(catalog[0].requires_permission)
+
 
 class ContextLoaderMalformedRecordsTest(unittest.TestCase):
     """回归：畸形 run record 不应导致崩溃。"""

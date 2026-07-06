@@ -400,6 +400,167 @@ class DeepSeekLLMTest(unittest.TestCase):
         self.assertIn("write_file", user_prompt)
         self.assertIn("requires_permission", user_prompt)
 
+    # ---- V0.7: command action contract ----
+
+    def test_system_prompt_includes_run_command_example(self) -> None:
+        from min_agent.deepseek_llm import DeepSeekLLM
+
+        llm = DeepSeekLLM(
+            client=StubClient('{"kind":"final_answer","message":"ok","reason":"done","success":true}'),
+            model="deepseek-v4-flash",
+        )
+
+        system_prompt = llm._system_prompt()
+
+        self.assertIn('"tool_name": "run_command"', system_prompt)
+        self.assertIn('"command_id": "get_current_time"', system_prompt)
+
+    def test_user_prompt_includes_run_command_catalog_entry(self) -> None:
+        from min_agent.deepseek_llm import DeepSeekLLM
+        from min_agent.types import AgentContext, ToolCatalogEntry, ToolSpec
+
+        client = StubClient(
+            '{"kind":"final_answer","message":"done","reason":"ok","success":true}'
+        )
+        llm = DeepSeekLLM(client=client, model="deepseek-v4-flash")
+        context = AgentContext(
+            user_goal="现在几点？",
+            workspace="ws",
+            available_tools=[ToolSpec(name="run_command", description="Run command", requires_permission=True)],
+            observations=[],
+            tool_catalog=[
+                ToolCatalogEntry(
+                    name="run_command",
+                    description="Run one predefined local command action after approval.",
+                    requires_permission=True,
+                    args_schema={"command_id": "string"},
+                ),
+            ],
+        )
+
+        llm.decide(context)
+
+        _, user_prompt = client.calls[0]
+        self.assertIn("run_command", user_prompt)
+        self.assertIn("args_schema", user_prompt)
+        self.assertIn("command_id", user_prompt)
+
+    def test_parses_valid_run_command_action(self) -> None:
+        from min_agent.deepseek_llm import DeepSeekLLM
+        from min_agent.types import AgentContext, ToolSpec
+
+        llm = DeepSeekLLM(
+            client=StubClient(
+                '{"kind":"tool_call","tool_name":"run_command","args":{"command_id":"get_current_time"},"reason":"需要当前时间"}'
+            ),
+            model="deepseek-v4-flash",
+        )
+        context = AgentContext(
+            user_goal="现在几点？",
+            workspace="examples/workspace",
+            available_tools=[ToolSpec(name="run_command", description="Run command", requires_permission=True)],
+            observations=[],
+        )
+
+        action = llm.decide(context)
+
+        self.assertEqual(action.kind, "tool_call")
+        self.assertEqual(action.tool_name, "run_command")
+        self.assertEqual(action.args, {"command_id": "get_current_time"})
+
+    def test_rejects_run_command_with_missing_args(self) -> None:
+        from min_agent.deepseek_llm import DeepSeekLLM
+        from min_agent.types import AgentContext, ToolSpec
+
+        llm = DeepSeekLLM(
+            client=StubClient(
+                '{"kind":"tool_call","tool_name":"run_command","reason":"需要当前时间"}'
+            ),
+            model="deepseek-v4-flash",
+        )
+        context = AgentContext(
+            user_goal="现在几点？",
+            workspace="examples/workspace",
+            available_tools=[ToolSpec(name="run_command", description="Run command", requires_permission=True)],
+            observations=[],
+        )
+
+        action = llm.decide(context)
+
+        self.assertEqual(action.kind, "final_answer")
+        self.assertFalse(action.success)
+        self.assertIn("缺少 args", action.message or "")
+
+    def test_rejects_run_command_with_missing_command_id(self) -> None:
+        from min_agent.deepseek_llm import DeepSeekLLM
+        from min_agent.types import AgentContext, ToolSpec
+
+        llm = DeepSeekLLM(
+            client=StubClient(
+                '{"kind":"tool_call","tool_name":"run_command","args":{},"reason":"需要当前时间"}'
+            ),
+            model="deepseek-v4-flash",
+        )
+        context = AgentContext(
+            user_goal="现在几点？",
+            workspace="examples/workspace",
+            available_tools=[ToolSpec(name="run_command", description="Run command", requires_permission=True)],
+            observations=[],
+        )
+
+        action = llm.decide(context)
+
+        self.assertEqual(action.kind, "final_answer")
+        self.assertFalse(action.success)
+        self.assertIn("command_id", (action.message or "").lower())
+
+    def test_preserves_unknown_command_id_in_action_for_registry_validation(self) -> None:
+        from min_agent.deepseek_llm import DeepSeekLLM
+        from min_agent.types import AgentContext, ToolSpec
+
+        llm = DeepSeekLLM(
+            client=StubClient(
+                '{"kind":"tool_call","tool_name":"run_command","args":{"command_id":"delete_everything"},"reason":"测试"}'
+            ),
+            model="deepseek-v4-flash",
+        )
+        context = AgentContext(
+            user_goal="现在几点？",
+            workspace="examples/workspace",
+            available_tools=[ToolSpec(name="run_command", description="Run command", requires_permission=True)],
+            observations=[],
+        )
+
+        action = llm.decide(context)
+
+        # Parser preserves unknown command_id; registry validation handles rejection later
+        self.assertEqual(action.kind, "tool_call")
+        self.assertEqual(action.tool_name, "run_command")
+        self.assertEqual(action.args, {"command_id": "delete_everything"})
+
+    def test_extra_keys_in_run_command_args_reach_registry_validation(self) -> None:
+        from min_agent.deepseek_llm import DeepSeekLLM
+        from min_agent.types import AgentContext, ToolSpec
+
+        llm = DeepSeekLLM(
+            client=StubClient(
+                '{"kind":"tool_call","tool_name":"run_command","args":{"command_id":"get_current_time","command":"date"},"reason":"测试"}'
+            ),
+            model="deepseek-v4-flash",
+        )
+        context = AgentContext(
+            user_goal="现在几点？",
+            workspace="examples/workspace",
+            available_tools=[ToolSpec(name="run_command", description="Run command", requires_permission=True)],
+            observations=[],
+        )
+
+        action = llm.decide(context)
+
+        # Parser preserves extra keys; registry validate_args rejects the exact-shape check
+        self.assertEqual(action.kind, "tool_call")
+        self.assertIn("command", action.args)
+
 
 if __name__ == "__main__":
     unittest.main()

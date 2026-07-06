@@ -157,6 +157,7 @@ class ToolCatalogEntry:
     name: str
     description: str
     requires_permission: bool
+    args_schema: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

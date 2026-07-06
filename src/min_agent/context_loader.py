@@ -291,6 +291,7 @@ class ContextLoader:
                 name=tool.name,
                 description=tool.description,
                 requires_permission=tool.requires_permission,
+                args_schema=dict(tool.args_schema),
             )
             for tool in tools
         ]
