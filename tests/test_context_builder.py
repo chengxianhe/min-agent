@@ -126,3 +126,48 @@ class ContextBuilderTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ===== V0.8 新增测试 =====
+
+
+class ContextBuilderV08Test(unittest.TestCase):
+    def test_build_with_task_plan(self) -> None:
+        from min_agent.context_builder import ContextBuilder
+        from min_agent.types import TaskSnapshot, ToolSpec
+
+        builder = ContextBuilder()
+        plan = [TaskSnapshot("task-1", "查看文件", "目录成功", "running")]
+        context = builder.build(
+            user_goal="复合目标",
+            workspace="examples/workspace",
+            available_tools=[ToolSpec(name="list_dir", description="List dir")],
+            observations=[],
+            task_plan=plan,
+            current_task_id="task-1",
+        )
+
+        self.assertEqual(context.task_plan, plan)
+        self.assertEqual(context.current_task_id, "task-1")
+        data = context.to_dict()
+        self.assertIn("task_plan", data)
+        self.assertEqual(data["task_plan"][0]["task_id"], "task-1")
+        self.assertEqual(data["current_task_id"], "task-1")
+
+    def test_build_without_task_plan_v07_regression(self) -> None:
+        from min_agent.context_builder import ContextBuilder
+        from min_agent.types import ToolSpec
+
+        builder = ContextBuilder()
+        context = builder.build(
+            user_goal="现在几点？",
+            workspace="examples/workspace",
+            available_tools=[ToolSpec(name="run_command", description="Run command")],
+            observations=[],
+        )
+
+        self.assertEqual(context.task_plan, [])
+        self.assertIsNone(context.current_task_id)
+        data = context.to_dict()
+        self.assertNotIn("task_plan", data)
+        self.assertNotIn("current_task_id", data)

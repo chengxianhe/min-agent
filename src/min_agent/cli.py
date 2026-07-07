@@ -208,7 +208,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Run record: {record_path}")
 
         if server is not None and args.keep_open_seconds > 0:
-            time.sleep(args.keep_open_seconds)
+            try:
+                time.sleep(args.keep_open_seconds)
+            except KeyboardInterrupt:
+                pass
         return 0
     except KeyboardInterrupt:
         recorder.emit(

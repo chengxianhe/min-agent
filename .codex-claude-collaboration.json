@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "project_id": "min-agent-demo",
+  "records_dir_template": "docs/collaboration/{task_id}",
+  "rules_files": ["AGENTS.md"],
+  "validation_commands": [
+    ["python3", "-m", "unittest", "discover", "-s", "tests"]
+  ],
+  "protected_paths": [
+    ".git",
+    ".env",
+    ".github",
+    "runs",
+    ".codex-claude-collaboration.json"
+  ]
+}

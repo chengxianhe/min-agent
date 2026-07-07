@@ -22,3 +22,6 @@ runs/*.json
 
 # Demo workspace generated files
 examples/workspace/summary.md
+
+# Browser verification artifacts
+.playwright-mcp/

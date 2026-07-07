@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from min_agent.types import AgentAction, AgentContext, Observation
+from min_agent.types import AgentAction, AgentContext, Observation, TaskDefinition, TaskSnapshot
 
 
 FILE_PATTERN = re.compile(r"[\w./-]+\.md")
@@ -16,9 +16,27 @@ PATH_KEYWORDS = {
 WRITE_VERBS = ("生成", "写入", "保存", "create", "write", "save")
 TIME_KEYWORDS = ("现在几点", "当前时间", "current time", "what time")
 
+# V0.8: 复合目标检测需要三个信号
+PROJECT_READING_SIGNALS = ("workspace", "项目资料", "工作区", "项目文件", "workspace 中的")
+COMPOSITE_TIME_SIGNALS = ("获取当前时间", "获取时间", "当前时间", "get current time")
+COMPOSITE_WRITE_TARGETS = ("summary.md", "总结.md", "report.md")
+
 
 class FakeLLM:
+    def __init__(self) -> None:
+        # V0.8: 跨任务累积状态，供 task-4 构建写入内容
+        self._composite_read_contents: list[tuple[str, str]] = []  # [(path, content), ...]
+        self._composite_time_result: str | None = None
+
     def decide(self, context: AgentContext) -> AgentAction:
+        # --- V0.8: 如果已有计划，按计划执行 ---
+        if context.task_plan:
+            return self._decide_planned_goal(context)
+
+        # --- V0.8: 检测复合目标 ---
+        if self._is_composite_goal(context.user_goal):
+            return self._create_composite_plan(context.user_goal)
+
         # --- V0.7: goal-first command routing for current-time queries ---
         if self._is_time_query(context.user_goal):
             return self._decide_time(context)
@@ -339,3 +357,214 @@ class FakeLLM:
             if obs.tool_name == "run_command" and obs.args.get("command_id") == "get_current_time":
                 return obs
         return None
+
+    # ---- V0.8: composite goal routing ----
+
+    @staticmethod
+    def _is_composite_goal(user_goal: str) -> bool:
+        """需要同时满足三个信号：项目/workspace 阅读意图 + 获取当前时间意图 + 显式 Markdown 写入目标。"""
+        normalized = user_goal.lower()
+
+        # 项目阅读意图：排除明确否定
+        has_project_reading = any(
+            signal.lower() in normalized for signal in PROJECT_READING_SIGNALS
+        )
+        # 如果包含"不需要阅读项目资料"等否定，排除
+        if "不需要" in normalized and "项目资料" in normalized:
+            has_project_reading = False
+
+        # 时间意图：必须是"获取时间"的动作，而非内容匹配
+        has_time_intent = any(
+            signal.lower() in normalized for signal in COMPOSITE_TIME_SIGNALS
+        )
+        # 排除引号内的"当前时间"（内容匹配而非系统时间意图）
+        if has_time_intent and '"当前时间"' in user_goal:
+            has_time_intent = False
+        if has_time_intent and '“当前时间”' in user_goal:
+            has_time_intent = False
+
+        has_write_target = any(
+            target.lower() in normalized for target in COMPOSITE_WRITE_TARGETS
+        ) or ("生成" in normalized and ".md" in normalized)
+
+        return has_project_reading and has_time_intent and has_write_target
+
+    def _create_composite_plan(self, user_goal: str) -> AgentAction:
+        """为复合目标生成固定的 4 任务计划。"""
+        _ = user_goal  # 参数保留用于未来扩展
+        tasks = [
+            TaskDefinition(
+                task_id="task-1",
+                title="查看项目文件",
+                completion_criteria="成功获得 workspace 中可用 Markdown 文件列表",
+            ),
+            TaskDefinition(
+                task_id="task-2",
+                title="读取并整理资料",
+                completion_criteria="成功读取相关 Markdown 文件并形成摘要所需内容",
+            ),
+            TaskDefinition(
+                task_id="task-3",
+                title="获取当前时间",
+                completion_criteria="成功获得 run_command/get_current_time 的真实结果",
+            ),
+            TaskDefinition(
+                task_id="task-4",
+                title="生成并写入摘要",
+                completion_criteria="成功创建包含项目摘要和真实时间的 summary.md",
+            ),
+        ]
+        return AgentAction.create_plan(tasks, reason="用户目标包含项目阅读、时间获取和文件写入三个可验收子目标")
+
+    def _decide_planned_goal(self, context: AgentContext) -> AgentAction:
+        """在已有计划中按当前任务执行。"""
+        current_id = context.current_task_id
+        observations = context.observations
+
+        if current_id == "task-1":
+            return self._decide_task1(observations)
+        elif current_id == "task-2":
+            return self._decide_task2(observations, context)
+        elif current_id == "task-3":
+            return self._decide_task3(observations)
+        elif current_id == "task-4":
+            return self._decide_task4(observations, context)
+        else:
+            # 全部完成
+            return AgentAction.final_answer(
+                message="已完成 summary.md 的生成，包含项目资料摘要和当前时间。",
+                reason="所有四个任务都已完成",
+            )
+
+    def _decide_task1(self, observations: list[Observation]) -> AgentAction:
+        """任务 1：查看项目文件。"""
+        list_obs = self._find_latest_observation(observations, "list_dir", {"path": "."})
+        if list_obs is None:
+            return AgentAction.tool_call(
+                tool_name="list_dir",
+                args={"path": "."},
+                reason="需要查看 workspace 中有哪些项目文件",
+            )
+        if list_obs.result.success:
+            return AgentAction.complete_task(
+                task_id="task-1",
+                completion_evidence="list_dir Observation succeeded",
+                evidence_observation_indexes=[1],
+                reason="已成功获得 workspace 文件列表",
+            )
+        return AgentAction.final_answer(
+            message=f"查看项目文件失败：{list_obs.result.error}",
+            reason="list_dir 失败",
+            success=False,
+        )
+
+    def _decide_task2(self, observations: list[Observation], context: AgentContext) -> AgentAction:
+        """任务 2：读取并整理项目资料。"""
+        # 存储成功读取的内容
+        for obs in observations:
+            if obs.tool_name == "read_file" and obs.result.success:
+                path = obs.args.get("path", "unknown")
+                content = obs.result.content
+                if (path, content) not in self._composite_read_contents:
+                    self._composite_read_contents.append((path, content))
+
+        read_obs_count = sum(1 for o in observations if o.tool_name == "read_file" and o.result.success)
+        if read_obs_count < MAX_FAKE_READS:
+            paths_to_read = ["project.md", "architecture.md"]
+            for path in paths_to_read:
+                obs = self._find_latest_read_observation(observations, path)
+                if obs is None:
+                    return AgentAction.tool_call(
+                        tool_name="read_file",
+                        args={"path": path},
+                        reason=f"需要读取 {path} 以获取项目资料内容",
+                    )
+            pass
+
+        if read_obs_count > 0:
+            indexes = [i + 1 for i, o in enumerate(observations)
+                       if o.tool_name == "read_file" and o.result.success]
+            return AgentAction.complete_task(
+                task_id="task-2",
+                completion_evidence="read_file Observations succeeded",
+                evidence_observation_indexes=indexes,
+                reason="已成功读取相关 Markdown 文件",
+            )
+
+        return AgentAction.tool_call(
+            tool_name="read_file",
+            args={"path": "project.md"},
+            reason="需要读取项目资料",
+        )
+
+    def _decide_task3(self, observations: list[Observation]) -> AgentAction:
+        """任务 3：获取当前时间。"""
+        time_obs = self._find_latest_time_observation(observations)
+        if time_obs is None:
+            return AgentAction.tool_call(
+                tool_name="run_command",
+                args={"command_id": "get_current_time"},
+                reason="需要获取当前系统时间",
+            )
+        if time_obs.result.success:
+            self._composite_time_result = time_obs.result.content
+            return AgentAction.complete_task(
+                task_id="task-3",
+                completion_evidence="run_command/get_current_time Observation succeeded",
+                evidence_observation_indexes=[1],
+                reason="已成功获取当前时间",
+            )
+        error = time_obs.result.error or "unknown"
+        return AgentAction.final_answer(
+            message=f"获取当前时间失败：{error}",
+            reason=f"run_command 失败：{error}",
+            success=False,
+        )
+
+    def _decide_task4(self, observations: list[Observation], context: AgentContext) -> AgentAction:
+        """任务 4：生成并写入 summary.md。"""
+        write_obs = self._find_write_observation(observations, "summary.md")
+        if write_obs is None:
+            # 使用跨任务累积的内容构建 summary
+            content_parts = ["# Summary\n"]
+
+            for path, content in self._composite_read_contents:
+                lines = [line.strip() for line in content.splitlines() if line.strip()]
+                preview = " ".join(lines[:3])
+                content_parts.append(f"## {path}\n{preview}\n")
+
+            if self._composite_time_result:
+                content_parts.append(f"\nGenerated at: {self._composite_time_result}\n")
+
+            write_content = "\n".join(content_parts)
+
+            return AgentAction.tool_call(
+                tool_name="write_file",
+                args={
+                    "path": "summary.md",
+                    "content": write_content,
+                    "mode": "create",
+                },
+                reason="需要将包含项目摘要和时间的总结写入 summary.md",
+            )
+
+        if write_obs.result.success:
+            return AgentAction.complete_task(
+                task_id="task-4",
+                completion_evidence="write_file Observation succeeded",
+                evidence_observation_indexes=[len(observations)],
+                reason="已成功创建 summary.md",
+            )
+
+        if write_obs.result.metadata.get("permission") == "rejected":
+            return AgentAction.final_answer(
+                message="没有生成 summary.md，因为用户拒绝了写文件权限。",
+                reason="用户拒绝了写文件权限",
+                success=False,
+            )
+
+        return AgentAction.final_answer(
+            message=f"写入文件失败：{write_obs.result.error}",
+            reason="write_file 失败",
+            success=False,
+        )

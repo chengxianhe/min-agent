@@ -103,5 +103,201 @@ class CoreTypesTest(unittest.TestCase):
         self.assertTrue(data["output"]["approved"])
 
 
+# ===== V0.8 新增测试 =====
+
+
+class TaskDefinitionTest(unittest.TestCase):
+    def test_task_definition_is_frozen_and_serializable(self) -> None:
+        from min_agent.types import TaskDefinition
+
+        task = TaskDefinition(
+            task_id="task-1",
+            title="查看项目文件",
+            completion_criteria="成功获得 workspace 根目录文件列表。",
+        )
+        self.assertEqual(task.task_id, "task-1")
+        self.assertEqual(task.title, "查看项目文件")
+        self.assertEqual(task.completion_criteria, "成功获得 workspace 根目录文件列表。")
+
+        data = task.to_dict()
+        self.assertEqual(data["task_id"], "task-1")
+        self.assertEqual(data["title"], "查看项目文件")
+        self.assertEqual(data["completion_criteria"], "成功获得 workspace 根目录文件列表。")
+
+    def test_task_definition_is_immutable(self) -> None:
+        from min_agent.types import TaskDefinition
+
+        task = TaskDefinition("task-1", "标题", "标准")
+        with self.assertRaises(Exception):
+            task.task_id = "task-2"  # type: ignore[misc]
+
+
+class TaskSnapshotTest(unittest.TestCase):
+    def test_task_snapshot_defaults(self) -> None:
+        from min_agent.types import TaskSnapshot
+
+        snap = TaskSnapshot(
+            task_id="task-1",
+            title="查看文件",
+            completion_criteria="获得文件列表",
+            status="pending",
+        )
+        self.assertEqual(snap.failure_reason, "")
+
+    def test_task_snapshot_with_failure(self) -> None:
+        from min_agent.types import TaskSnapshot
+
+        snap = TaskSnapshot(
+            task_id="task-2",
+            title="读取资料",
+            completion_criteria="成功读取",
+            status="failed",
+            failure_reason="permission denied",
+        )
+        data = snap.to_dict()
+        self.assertEqual(data["status"], "failed")
+        self.assertEqual(data["failure_reason"], "permission denied")
+
+
+class AgentActionV08Test(unittest.TestCase):
+    def test_create_plan_action(self) -> None:
+        from min_agent.types import AgentAction, TaskDefinition
+
+        tasks = [
+            TaskDefinition("task-1", "查看项目文件", "成功获得 workspace 根目录文件列表。"),
+        ]
+        action = AgentAction.create_plan(tasks, reason="Need an explicit plan")
+        self.assertEqual(action.kind, "create_plan")
+        self.assertEqual(len(action.tasks), 1)
+        self.assertEqual(action.tasks[0].task_id, "task-1")
+
+        data = action.to_dict()
+        self.assertEqual(data["kind"], "create_plan")
+        self.assertEqual(data["tasks"][0]["task_id"], "task-1")
+        self.assertEqual(data["tasks"][0]["title"], "查看项目文件")
+
+    def test_complete_task_action(self) -> None:
+        from min_agent.types import AgentAction
+
+        completion = AgentAction.complete_task(
+            task_id="task-1",
+            completion_evidence="list_dir Observation succeeded",
+            evidence_observation_indexes=[1],
+            reason="The criterion is satisfied",
+        )
+        self.assertEqual(completion.kind, "complete_task")
+        self.assertEqual(completion.task_id, "task-1")
+        self.assertEqual(completion.completion_evidence, "list_dir Observation succeeded")
+        self.assertEqual(completion.evidence_observation_indexes, [1])
+
+        data = completion.to_dict()
+        self.assertEqual(data["kind"], "complete_task")
+        self.assertEqual(data["task_id"], "task-1")
+        self.assertEqual(data["evidence_observation_indexes"], [1])
+
+    def test_tool_call_v07_defaults_preserved(self) -> None:
+        from min_agent.types import AgentAction
+
+        action = AgentAction.tool_call("read_file", {"path": "notes.md"}, "需要读取")
+        data = action.to_dict()
+        # V0.7 默认值：tasks 为空，task_id 为 None
+        self.assertEqual(data.get("tasks"), [])
+        self.assertIsNone(data.get("task_id"))
+        self.assertIsNone(data.get("completion_evidence"))
+        self.assertEqual(data.get("evidence_observation_indexes"), [])
+
+    def test_final_answer_v07_defaults_preserved(self) -> None:
+        from min_agent.types import AgentAction
+
+        action = AgentAction.final_answer("done", "all good")
+        data = action.to_dict()
+        self.assertEqual(data.get("tasks"), [])
+        self.assertIsNone(data.get("task_id"))
+
+
+class TraceEventV08Test(unittest.TestCase):
+    def test_trace_event_with_task_id(self) -> None:
+        from min_agent.types import TraceEvent
+
+        event = TraceEvent(
+            run_id="run-1",
+            step=1,
+            timestamp="2026-07-07T00:00:00+08:00",
+            phase="task_started",
+            status="running",
+            title="开始任务",
+            task_id="task-1",
+        )
+        self.assertEqual(event.task_id, "task-1")
+        self.assertEqual(event.to_dict()["task_id"], "task-1")
+
+    def test_trace_event_without_task_id_defaults_to_none(self) -> None:
+        from min_agent.types import TraceEvent
+
+        event = TraceEvent(
+            run_id="run-1",
+            step=1,
+            timestamp="2026-07-07T00:00:00+08:00",
+            phase="llm_decision",
+            status="running",
+            title="决定下一步",
+        )
+        self.assertIsNone(event.task_id)
+        self.assertIsNone(event.to_dict()["task_id"])
+
+    def test_new_event_phases_are_valid(self) -> None:
+        from min_agent.types import TraceEvent
+
+        for phase in ("plan_created", "task_started", "task_completed", "task_failed", "task_skipped"):
+            event = TraceEvent(
+                run_id="run-1",
+                step=1,
+                timestamp="2026-07-07T00:00:00+08:00",
+                phase=phase,  # type: ignore[arg-type]
+                status="running",
+                title="测试",
+            )
+            self.assertEqual(event.phase, phase)
+
+
+class AgentContextV08Test(unittest.TestCase):
+    def test_context_with_task_plan(self) -> None:
+        from min_agent.types import AgentContext, TaskSnapshot, ToolSpec
+
+        plan = [TaskSnapshot("task-1", "查看文件", "获得列表", "running")]
+        ctx = AgentContext(
+            user_goal="测试",
+            workspace="/tmp",
+            available_tools=[ToolSpec("read_file", "读取文件")],
+            observations=[],
+            task_plan=plan,
+            current_task_id="task-1",
+        )
+        self.assertEqual(ctx.task_plan, plan)
+        self.assertEqual(ctx.current_task_id, "task-1")
+
+        data = ctx.to_dict()
+        self.assertIn("task_plan", data)
+        self.assertEqual(data["task_plan"][0]["task_id"], "task-1")
+        self.assertEqual(data["current_task_id"], "task-1")
+
+    def test_context_without_task_plan(self) -> None:
+        from min_agent.types import AgentContext, ToolSpec
+
+        ctx = AgentContext(
+            user_goal="现在几点？",
+            workspace="/tmp",
+            available_tools=[ToolSpec("run_command", "执行命令")],
+            observations=[],
+        )
+        self.assertEqual(ctx.task_plan, [])
+        self.assertIsNone(ctx.current_task_id)
+
+        data = ctx.to_dict()
+        # V0.7 兼容：无计划时不出现 task_plan
+        self.assertNotIn("task_plan", data)
+        self.assertNotIn("current_task_id", data)
+
+
 if __name__ == "__main__":
     unittest.main()

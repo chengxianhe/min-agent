@@ -4,7 +4,7 @@ import json
 from typing import Protocol
 
 from min_agent.deepseek_client import ModelClientError
-from min_agent.types import AgentAction, AgentContext
+from min_agent.types import AgentAction, AgentContext, TaskDefinition
 
 
 class ChatCompletionClient(Protocol):
@@ -79,6 +79,12 @@ class DeepSeekLLM:
 
             return AgentAction.tool_call(tool_name=tool_name, args=args, reason=reason, metadata=metadata)
 
+        if kind == "create_plan":
+            return self._parse_create_plan(data, reason, metadata)
+
+        if kind == "complete_task":
+            return self._parse_complete_task(data, reason, metadata)
+
         if kind == "final_answer":
             message = data.get("message")
             success = data.get("success", True)
@@ -97,6 +103,98 @@ class DeepSeekLLM:
         metadata: dict[str, object] | None = None,
     ) -> AgentAction:
         return AgentAction.final_answer(message=message, reason=reason, success=False, metadata=metadata or {})
+
+    # ---- V0.8: create_plan / complete_task parsers ----
+
+    def _parse_create_plan(
+        self,
+        data: dict,
+        reason: str,
+        metadata: dict[str, object],
+    ) -> AgentAction:
+        tasks_raw = data.get("tasks")
+        if not isinstance(tasks_raw, list):
+            return self._invalid_action("create_plan 的 tasks 必须是数组。", reason, metadata)
+
+        if len(tasks_raw) < 2 or len(tasks_raw) > 5:
+            return self._invalid_action(
+                f"create_plan 的 tasks 必须包含 2–5 个任务，实际为 {len(tasks_raw)} 个。",
+                reason, metadata,
+            )
+
+        tasks: list[TaskDefinition] = []
+        for i, t in enumerate(tasks_raw):
+            if not isinstance(t, dict):
+                return self._invalid_action(
+                    f"create_plan 的 tasks[{i}] 必须是 JSON object。", reason, metadata,
+                )
+            task_id = t.get("task_id")
+            title = t.get("title")
+            completion_criteria = t.get("completion_criteria")
+
+            if not isinstance(task_id, str) or not task_id:
+                return self._invalid_action(
+                    f"create_plan 的 tasks[{i}] 缺少有效的 task_id。", reason, metadata,
+                )
+            if not isinstance(title, str) or not title.strip():
+                return self._invalid_action(
+                    f"create_plan 的 tasks[{i}] 的 title 不能为空。", reason, metadata,
+                )
+            if not isinstance(completion_criteria, str) or not completion_criteria.strip():
+                return self._invalid_action(
+                    f"create_plan 的 tasks[{i}] 的 completion_criteria 不能为空。", reason, metadata,
+                )
+
+            expected_id = f"task-{i + 1}"
+            if task_id != expected_id:
+                return self._invalid_action(
+                    f"create_plan 的 tasks[{i}] 的 task_id 必须为 '{expected_id}'，实际为 '{task_id}'。",
+                    reason, metadata,
+                )
+
+            tasks.append(TaskDefinition(
+                task_id=task_id,
+                title=title.strip(),
+                completion_criteria=completion_criteria.strip(),
+            ))
+
+        return AgentAction.create_plan(tasks=tasks, reason=reason, metadata=metadata)
+
+    def _parse_complete_task(
+        self,
+        data: dict,
+        reason: str,
+        metadata: dict[str, object],
+    ) -> AgentAction:
+        task_id = data.get("task_id")
+        if not isinstance(task_id, str) or not task_id:
+            return self._invalid_action("complete_task 缺少有效的 task_id。", reason, metadata)
+
+        completion_evidence = data.get("completion_evidence")
+        if not isinstance(completion_evidence, str) or not completion_evidence.strip():
+            return self._invalid_action("complete_task 缺少有效的 completion_evidence。", reason, metadata)
+
+        evidence_observation_indexes = data.get("evidence_observation_indexes")
+        if not isinstance(evidence_observation_indexes, list) or not evidence_observation_indexes:
+            return self._invalid_action(
+                "complete_task 的 evidence_observation_indexes 必须是非空整数数组。",
+                reason, metadata,
+            )
+
+        for idx in evidence_observation_indexes:
+            if isinstance(idx, bool) or not isinstance(idx, int):
+                return self._invalid_action(
+                    f"evidence_observation_indexes 中的元素必须是整数，不允许 {type(idx).__name__}: {idx}。",
+                    reason, metadata,
+                )
+
+        return AgentAction.complete_task(
+            task_id=task_id,
+            completion_evidence=completion_evidence,
+            evidence_observation_indexes=evidence_observation_indexes,
+            reason=reason,
+            metadata=metadata,
+        )
 
     def _model_call_metadata(
         self,
@@ -137,6 +235,17 @@ Do not request workspace-external paths.
 Do not request overwrite of existing files.
 You only propose the action; local permission and tools decide execution.
 
+Task Planning Rules (V0.8):
+- Create a plan only for 2–5 ordered, independently verifiable user outcomes.
+- Never create a one-task plan. Tool-call count does NOT determine task count.
+- A task is a verifiable subgoal, not a single tool call.
+- If a plan already exists for this run (current_task_id is present), do NOT propose another create_plan.
+- After plan creation, act only on current_task_id.
+- To complete a task, return complete_task with explicit 1-based indexes into the current task's working Observations.
+- Every cited Observation index must have result.success=true.
+- Do not change task definitions after creation.
+- Stop-behavior is local and cannot be bypassed.
+
 Allowed json outputs:
 {
   "kind": "tool_call",
@@ -172,6 +281,23 @@ Allowed json outputs:
   "reason": "Enough information is available",
   "success": true
 }
+
+{
+  "kind": "create_plan",
+  "tasks": [
+    {"task_id": "task-1", "title": "查看项目文件", "completion_criteria": "成功获得 workspace 文件列表"},
+    {"task_id": "task-2", "title": "读取项目资料", "completion_criteria": "成功读取相关 Markdown 文件"}
+  ],
+  "reason": "The goal contains two ordered outcomes"
+}
+
+{
+  "kind": "complete_task",
+  "task_id": "task-1",
+  "completion_evidence": "Observation 1 contains a successful list_dir result",
+  "evidence_observation_indexes": [1],
+  "reason": "The current completion criterion is satisfied"
+}
 """
 
     def _user_prompt(self, context: AgentContext) -> str:
@@ -204,10 +330,20 @@ Allowed json outputs:
         # tool catalog is the model-visible capability boundary
         prompt_parts["available_tools"] = [entry.to_dict() for entry in context.tool_catalog]
 
+        # V0.8: task plan context
+        if context.task_plan:
+            prompt_parts["task_plan"] = [t.to_dict() for t in context.task_plan]
+            prompt_parts["current_task_id"] = context.current_task_id
+            prompt_parts["task_instruction"] = (
+                "A plan already exists. Act only on current_task_id. "
+                "Return complete_task with explicit 1-based current-task Observation indexes. "
+                "Do NOT return create_plan again."
+            )
+
         # output contract
         prompt_parts["output_contract"] = {
             "format": "single JSON object",
-            "allowed_kinds": ["tool_call", "final_answer"],
+            "allowed_kinds": ["create_plan", "complete_task", "tool_call", "final_answer"],
             "note": "Do not use markdown fences. Return only valid JSON.",
         }
 

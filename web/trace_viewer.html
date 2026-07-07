@@ -30,12 +30,20 @@
         <p id="final-answer">任务完成后展示最终回答。</p>
       </section>
 
+      <section id="task-plan-panel" class="task-plan-panel" hidden>
+        <div class="task-plan-heading"><h2>任务计划</h2></div>
+        <strong id="task-progress-text"></strong>
+        <div id="task-progress-value" class="progress-value"></div>
+        <ol id="task-list" class="task-list"></ol>
+      </section>
+
       <section class="layout" aria-label="Agentic loop trace">
         <nav class="rounds-panel" aria-label="执行轮次">
           <div class="panel-heading">
             <h2>执行轮次</h2>
             <p>按 Agentic Loop 分组</p>
           </div>
+          <p id="selected-task-label" class="selected-task-label" hidden></p>
           <ol id="round-list" class="round-list">
             <li class="empty">等待 Trace 事件...</li>
           </ol>

@@ -2,6 +2,8 @@ const state = {
   status: "waiting",
   events: [],
   selectedRoundId: null,
+  selectedTaskId: null,
+  userSelectedTask: false,
 };
 
 function connectTraceStream() {
@@ -29,6 +31,21 @@ function applyEvent(event) {
   } else {
     state.events.push(event);
   }
+
+  // V0.8: auto-select first task on plan creation
+  if (event.phase === "plan_created") {
+    const plan = buildTaskPlan(state.events);
+    if (plan && plan.definitions.length > 0) {
+      state.selectedTaskId = plan.definitions[0].task_id;
+      state.userSelectedTask = false;
+    }
+  }
+
+  // V0.8: when a new lifecycle event changes active task, override user selection
+  if (["task_started", "task_failed"].includes(event.phase)) {
+    state.userSelectedTask = false;
+  }
+
   const rounds = buildRounds(state.events);
   const latestRound = rounds[rounds.length - 1];
   if (["run_completed", "run_failed", "run_interrupted"].includes(event.phase)) {
@@ -58,6 +75,194 @@ function buildRunSummary(events) {
     contextBuilds: events.filter((event) => event.phase === "context_built").length,
     permissions: events.filter((event) => event.phase === "permission_requested").length,
   };
+}
+
+// ---- V0.8: task plan state derivation ----
+
+function buildTaskPlan(events) {
+  const planEvent = events.find((e) => e.phase === "plan_created");
+  if (!planEvent || !planEvent.output || !Array.isArray(planEvent.output.tasks)) {
+    return null;
+  }
+
+  const definitions = planEvent.output.tasks.map((t) => ({
+    task_id: t.task_id,
+    title: t.title,
+    completion_criteria: t.completion_criteria,
+  }));
+
+  if (definitions.length < 2 || definitions.length > 5) {
+    return null;
+  }
+
+  // Apply lifecycle events by stable ID
+  const statuses = {};
+  const failureReasons = {};
+  for (const d of definitions) {
+    statuses[d.task_id] = "pending";
+    failureReasons[d.task_id] = "";
+  }
+
+  for (const event of events) {
+    const tid = event.task_id || event.output?.task_id;
+    if (!tid) continue;
+
+    if (event.phase === "task_started" && statuses[tid] === "pending") {
+      statuses[tid] = "running";
+    } else if (event.phase === "task_completed") {
+      statuses[tid] = "completed";
+    } else if (event.phase === "task_failed") {
+      statuses[tid] = "failed";
+      failureReasons[tid] = event.output?.failure_reason || "";
+    } else if (event.phase === "task_skipped") {
+      statuses[tid] = "skipped";
+      failureReasons[tid] = event.output?.failure_reason || "";
+    }
+  }
+
+  // Find current running/failed task
+  let activeTaskId = null;
+  for (const d of definitions) {
+    if (statuses[d.task_id] === "running" || statuses[d.task_id] === "failed") {
+      activeTaskId = d.task_id;
+      break;
+    }
+  }
+
+  return {
+    definitions,
+    statuses,
+    failureReasons,
+    activeTaskId,
+    completedCount: Object.values(statuses).filter((s) => s === "completed").length,
+    totalCount: definitions.length,
+  };
+}
+
+function renderTaskPlan() {
+  const plan = buildTaskPlan(state.events);
+  const panel = document.querySelector("#task-plan-panel");
+
+  if (!plan) {
+    panel.hidden = true;
+    state.selectedTaskId = null;
+    state.userSelectedTask = false;
+    const label = document.querySelector("#selected-task-label");
+    label.hidden = true;
+    label.textContent = "";
+    return;
+  }
+
+  panel.hidden = false;
+
+  // Progress
+  const progressEl = document.querySelector("#task-progress-text");
+  const allDone = plan.completedCount === plan.totalCount && !plan.activeTaskId;
+  const hasFailure = Object.values(plan.statuses).some((s) => s === "failed");
+  progressEl.textContent = allDone && !hasFailure
+    ? `${plan.completedCount} / ${plan.totalCount} 完成`
+    : `${plan.completedCount} / ${plan.totalCount} 任务`;
+
+  // Task list
+  const list = document.querySelector("#task-list");
+  list.replaceChildren();
+
+  for (const def of plan.definitions) {
+    const tid = def.task_id;
+    const status = plan.statuses[tid] || "pending";
+    const reason = plan.failureReasons[tid] || "";
+
+    const card = document.createElement("li");
+    card.className = `task-card task-${status}`;
+    if (tid === state.selectedTaskId) {
+      card.classList.add("task-selected");
+    }
+
+    const top = document.createElement("div");
+    top.className = "task-top";
+
+    const index = document.createElement("span");
+    index.className = "task-index";
+    index.textContent = tid.replace("task-", "");
+
+    const title = document.createElement("span");
+    title.className = "task-title";
+    title.textContent = def.title;
+
+    const statusBadge = document.createElement("span");
+    statusBadge.className = "task-status";
+    const statusLabels = { pending: "待执行", running: "执行中", completed: "已完成", failed: "失败", skipped: "已跳过" };
+    statusBadge.textContent = statusLabels[status] || status;
+
+    top.append(index, title, statusBadge);
+
+    if (reason) {
+      const error = document.createElement("p");
+      error.className = "task-error";
+      error.textContent = reason;
+      card.append(top, error);
+    } else {
+      card.append(top);
+    }
+
+    card.addEventListener("click", () => {
+      selectTask(tid);
+      render();
+    });
+
+    list.append(card);
+  }
+
+  // Auto-select active task
+  if (!state.userSelectedTask && plan.activeTaskId) {
+    state.selectedTaskId = plan.activeTaskId;
+  } else if (!state.userSelectedTask && !plan.activeTaskId && plan.definitions.length > 0) {
+    if (!state.selectedTaskId || !plan.definitions.find((d) => d.task_id === state.selectedTaskId)) {
+      state.selectedTaskId = plan.definitions[0].task_id;
+    }
+  }
+
+  // Update selected-task label
+  const label = document.querySelector("#selected-task-label");
+  const selectedDef = plan.definitions.find((d) => d.task_id === state.selectedTaskId);
+  if (selectedDef) {
+    label.hidden = false;
+    const status = plan.statuses[state.selectedTaskId] || "pending";
+    const statusLabels = { pending: "待执行", running: "执行中", completed: "已完成", failed: "失败", skipped: "已跳过" };
+    label.textContent = `当前任务：${selectedDef.title}（${statusLabels[status] || status}）`;
+  } else {
+    label.hidden = true;
+    label.textContent = "";
+  }
+}
+
+function selectTask(taskId) {
+  state.selectedTaskId = taskId;
+  state.userSelectedTask = true;
+  state.selectedRoundId = null;
+}
+
+function roundsForSelectedTask(rounds) {
+  if (!state.selectedTaskId) return rounds;
+
+  const plan = buildTaskPlan(state.events);
+  if (!plan) return rounds;
+
+  return rounds.filter((round) => {
+    if (round.id === "plan-generation") return state.selectedTaskId === plan.definitions[0]?.task_id;
+    const taskId = taskIdForRound(round);
+    return taskId === state.selectedTaskId;
+  });
+}
+
+function taskIdForRound(round) {
+  if (!round || !round.events || round.events.length === 0) return null;
+  for (const event of round.events) {
+    if (event.task_id) {
+      return event.task_id;
+    }
+  }
+  return null;
 }
 
 function renderRunSummary() {
@@ -162,6 +367,11 @@ function terminalEvent() {
 function moduleForPhase(phase) {
   const modules = {
     "run_started": "Goal",
+    "plan_created": "Task Plan",
+    "task_started": "Task Plan",
+    "task_completed": "Task Plan",
+    "task_failed": "Task Plan",
+    "task_skipped": "Task Plan",
     "context_built": "Context",
     "llm_decision": "Model / Reasoning",
     "tool_started": "Tools",
@@ -188,6 +398,7 @@ function render() {
   renderRunSummary();
   renderOriginalRequest();
   renderFinalAnswer();
+  renderTaskPlan();
   renderRoundList();
   renderRoundDetail();
 }
@@ -200,7 +411,14 @@ function renderStatus() {
 
 function renderRoundList() {
   const roundList = document.querySelector("#round-list");
-  const rounds = buildRounds(state.events);
+  let rounds = buildRounds(state.events);
+
+  // V0.8: filter by selected task
+  const plan = buildTaskPlan(state.events);
+  if (plan && state.selectedTaskId) {
+    rounds = roundsForSelectedTask(rounds);
+  }
+
   const entry = runStartedEvent();
   const completion = terminalEvent();
   roundList.replaceChildren();

@@ -45,6 +45,7 @@ class TraceRecorder:
         reason: str = "",
         input: dict[str, Any] | None = None,
         output: dict[str, Any] | None = None,
+        task_id: str | None = None,
     ) -> TraceEvent:
         with self._lock:
             event = TraceEvent(
@@ -57,6 +58,7 @@ class TraceRecorder:
                 reason=reason,
                 input=input or {},
                 output=output or {},
+                task_id=task_id,
             )
             self.events.append(event)
             subscribers = list(self._subscribers)

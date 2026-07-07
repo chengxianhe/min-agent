@@ -4,11 +4,17 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 
-ActionKind = Literal["tool_call", "final_answer"]
+ActionKind = Literal["create_plan", "complete_task", "tool_call", "final_answer"]
+TaskStatus = Literal["pending", "running", "completed", "failed", "skipped"]
 EventPhase = Literal[
     "run_started",
     "context_built",
     "llm_decision",
+    "plan_created",
+    "task_started",
+    "task_completed",
+    "task_failed",
+    "task_skipped",
     "tool_started",
     "tool_finished",
     "observation_added",
@@ -45,6 +51,28 @@ class ToolResult:
 
 
 @dataclass(frozen=True)
+class TaskDefinition:
+    task_id: str
+    title: str
+    completion_criteria: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class TaskSnapshot:
+    task_id: str
+    title: str
+    completion_criteria: str
+    status: TaskStatus
+    failure_reason: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class Observation:
     tool_name: str
     args: dict[str, Any]
@@ -67,6 +95,11 @@ class AgentAction:
     args: dict[str, Any] = field(default_factory=dict)
     message: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    # V0.8: task plan and completion evidence
+    tasks: list[TaskDefinition] = field(default_factory=list)
+    task_id: str | None = None
+    completion_evidence: str | None = None
+    evidence_observation_indexes: list[int] = field(default_factory=list)
 
     @classmethod
     def tool_call(
@@ -88,8 +121,48 @@ class AgentAction:
     ) -> AgentAction:
         return cls(kind="final_answer", message=message, reason=reason, success=success, metadata=metadata or {})
 
+    @classmethod
+    def create_plan(
+        cls,
+        tasks: list[TaskDefinition],
+        reason: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> AgentAction:
+        return cls(kind="create_plan", tasks=list(tasks), reason=reason, metadata=metadata or {})
+
+    @classmethod
+    def complete_task(
+        cls,
+        task_id: str,
+        completion_evidence: str,
+        evidence_observation_indexes: list[int],
+        reason: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> AgentAction:
+        return cls(
+            kind="complete_task",
+            task_id=task_id,
+            completion_evidence=completion_evidence,
+            evidence_observation_indexes=list(evidence_observation_indexes),
+            reason=reason,
+            metadata=metadata or {},
+        )
+
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        result: dict[str, Any] = {
+            "kind": self.kind,
+            "reason": self.reason,
+            "success": self.success,
+            "tool_name": self.tool_name,
+            "args": self.args,
+            "message": self.message,
+            "metadata": self.metadata,
+            "tasks": [t.to_dict() for t in self.tasks],
+            "task_id": self.task_id,
+            "completion_evidence": self.completion_evidence,
+            "evidence_observation_indexes": list(self.evidence_observation_indexes),
+        }
+        return result
 
 
 # ===== V0.6 新增类型 =====
@@ -178,6 +251,10 @@ class AgentContext:
     tool_catalog: list[ToolCatalogEntry] = field(default_factory=list)
     selected_project_content: list[str] = field(default_factory=list)
 
+    # === V0.8 新增字段 ===
+    task_plan: list[TaskSnapshot] = field(default_factory=list)
+    current_task_id: str | None = None
+
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {
             "user_goal": self.user_goal,
@@ -195,6 +272,9 @@ class AgentContext:
             result["tool_catalog"] = [entry.to_dict() for entry in self.tool_catalog]
         if self.selected_project_content:
             result["selected_project_content"] = list(self.selected_project_content)
+        if self.task_plan:
+            result["task_plan"] = [t.to_dict() for t in self.task_plan]
+            result["current_task_id"] = self.current_task_id
         return result
 
 
@@ -218,6 +298,7 @@ class TraceEvent:
     reason: str = ""
     input: dict[str, Any] = field(default_factory=dict)
     output: dict[str, Any] = field(default_factory=dict)
+    task_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

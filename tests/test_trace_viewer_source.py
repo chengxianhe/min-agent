@@ -588,3 +588,101 @@ class V07TraceViewerSourceTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ===== V0.8 Trace Viewer 源码测试 =====
+
+
+class V08TraceViewerSourceTest(unittest.TestCase):
+    def test_dom_order_matches_frozen_prototype(self) -> None:
+        html = (ROOT / "web" / "trace_viewer.html").read_text(encoding="utf-8")
+
+        # 模块顺序：run-status → summary-panel → original-request → result-panel → task-plan-panel → layout
+        self.assertIn('id="task-plan-panel"', html)
+        self.assertIn('id="selected-task-label"', html)
+
+        req_pos = html.index('id="original-request"')
+        result_pos = html.index('id="final-answer"')
+        plan_pos = html.index('id="task-plan-panel"')
+        layout_pos = html.index('class="layout"')
+
+        self.assertLess(req_pos, result_pos)
+        self.assertLess(result_pos, plan_pos)
+        self.assertLess(plan_pos, layout_pos)
+
+    def test_task_plan_panel_has_required_structure(self) -> None:
+        html = (ROOT / "web" / "trace_viewer.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="task-plan-panel"', html)
+        self.assertIn('class="task-plan-panel"', html)
+        self.assertIn("hidden", html)
+        self.assertIn('id="task-progress-text"', html)
+        self.assertIn('id="task-list"', html)
+        self.assertIn('class="task-list"', html)
+
+    def test_selected_task_label_in_rounds_panel(self) -> None:
+        html = (ROOT / "web" / "trace_viewer.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="selected-task-label"', html)
+        # 初始隐藏
+        rounds_section_start = html.index('id="round-list"')
+        rounds_section_before = html[rounds_section_start - 200:rounds_section_start]
+        self.assertIn("hidden", rounds_section_before)
+
+    def test_task_plan_js_functions_exist(self) -> None:
+        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+
+        self.assertIn("buildTaskPlan", js)
+        self.assertIn("renderTaskPlan", js)
+        self.assertIn("selectTask", js)
+        self.assertIn("roundsForSelectedTask", js)
+        self.assertIn("selectedTaskId", js)
+
+    def test_task_plan_css_classes_exist(self) -> None:
+        css = (ROOT / "web" / "trace_viewer.css").read_text(encoding="utf-8")
+
+        self.assertIn(".task-plan-panel", css)
+        self.assertIn(".task-card", css)
+        self.assertIn(".task-list", css)
+        self.assertIn(".selected-task-label", css)
+
+    def test_css_custom_properties_for_task_states(self) -> None:
+        css = (ROOT / "web" / "trace_viewer.css").read_text(encoding="utf-8")
+
+        for var_name in ["--blue", "--blue-soft", "--green", "--green-soft", "--red", "--red-soft"]:
+            self.assertIn(var_name, css, f"CSS custom property {var_name} must be defined")
+
+    def test_no_forms_or_approve_reject_controls(self) -> None:
+        html = (ROOT / "web" / "trace_viewer.html").read_text(encoding="utf-8")
+        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+
+        forbidden_html = ["<form", "<input", "<select", "<textarea", "approve", "reject", "retry", "onclick=\"edit"]
+        for token in forbidden_html:
+            self.assertNotIn(token, html.lower())
+
+        forbidden_js = ["approveButton", "rejectButton", "retryAgent", "editGoal", "executeButton"]
+        for token in forbidden_js:
+            self.assertNotIn(token, js)
+
+    def test_v07_v06_v05_v04_preservation(self) -> None:
+        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        html = (ROOT / "web" / "trace_viewer.html").read_text(encoding="utf-8")
+        css = (ROOT / "web" / "trace_viewer.css").read_text(encoding="utf-8")
+
+        v0_4_tokens = [
+            "task-entry", "task-completion", "flow-overview",
+            "summary-panel", "context-panel", "round-index",
+            "round-status-dot", "round-step-count", "step-io-grid",
+            "raw-event", "flow-node",
+        ]
+        for token in v0_4_tokens:
+            found = token in js or token in html or token in css
+            self.assertTrue(found, f"V0.4 token '{token}' no longer present")
+
+        v0_7_tokens = [
+            "command-step", "command-label", "isRunCommandStart",
+            "buildDisplaySteps", "renderCommandStep",
+        ]
+        for token in v0_7_tokens:
+            found = token in js or token in html or token in css
+            self.assertTrue(found, f"V0.7 token '{token}' no longer present")

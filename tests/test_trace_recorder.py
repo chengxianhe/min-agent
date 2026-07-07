@@ -46,3 +46,62 @@ class TraceRecorderTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ===== V0.8 新增测试 =====
+
+
+class TraceRecorderV08Test(unittest.TestCase):
+    def test_emit_with_task_id(self) -> None:
+        from min_agent.trace_recorder import TraceRecorder
+
+        received = []
+        recorder = TraceRecorder(user_goal="goal", workspace="workspace")
+        recorder.subscribe(received.append)
+
+        event = recorder.emit(
+            phase="task_started",
+            status="running",
+            title="开始任务",
+            task_id="task-1",
+        )
+
+        self.assertEqual(event.task_id, "task-1")
+        self.assertEqual(received[0].task_id, "task-1")
+
+    def test_emit_without_task_id_defaults_to_none(self) -> None:
+        from min_agent.trace_recorder import TraceRecorder
+
+        event = TraceRecorder(user_goal="goal", workspace="workspace").emit(
+            phase="tool_started",
+            status="running",
+            title="调用工具",
+        )
+
+        self.assertIsNone(event.task_id)
+
+    def test_save_preserves_task_id(self) -> None:
+        import json
+        import tempfile
+        from pathlib import Path
+
+        from min_agent.trace_recorder import TraceRecorder
+
+        with tempfile.TemporaryDirectory() as tmp:
+            recorder = TraceRecorder(user_goal="goal", workspace="workspace")
+            recorder.emit("task_started", "running", "开始", task_id="task-1")
+            path = recorder.save(Path(tmp), status="completed")
+
+            data = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(data["events"][0]["task_id"], "task-1")
+
+    def test_history_preserves_task_id(self) -> None:
+        from min_agent.trace_recorder import TraceRecorder
+
+        recorder = TraceRecorder(user_goal="goal", workspace="workspace")
+        recorder.emit("task_started", "running", "开始", task_id="task-1")
+        recorder.emit("tool_started", "running", "调用工具")
+
+        events = recorder.history()
+        self.assertEqual(events[0].task_id, "task-1")
+        self.assertIsNone(events[1].task_id)

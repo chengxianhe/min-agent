@@ -564,3 +564,383 @@ class DeepSeekLLMTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ===== V0.8 新增测试 =====
+
+
+class DeepSeekLLMV08CreatePlanTest(unittest.TestCase):
+    def test_parses_valid_create_plan(self) -> None:
+        from min_agent.deepseek_llm import DeepSeekLLM
+        from min_agent.types import AgentContext, ToolSpec
+
+        llm = DeepSeekLLM(
+            client=StubClient(
+                '{"kind":"create_plan","tasks":['
+                '{"task_id":"task-1","title":"查看项目文件","completion_criteria":"获得文件列表"},'
+                '{"task_id":"task-2","title":"读取项目资料","completion_criteria":"成功读取"}'
+                '],"reason":"The goal contains two ordered outcomes"}'
+            ),
+            model="deepseek-v4-flash",
+        )
+        context = AgentContext(
+            user_goal="复合目标",
+            workspace="examples/workspace",
+            available_tools=[
+                ToolSpec(name="list_dir", description="List"),
+                ToolSpec(name="read_file", description="Read"),
+            ],
+            observations=[],
+        )
+
+        action = llm.decide(context)
+
+        self.assertEqual(action.kind, "create_plan")
+        self.assertEqual(len(action.tasks), 2)
+        self.assertEqual(action.tasks[0].task_id, "task-1")
+        self.assertEqual(action.tasks[0].title, "查看项目文件")
+        self.assertEqual(action.tasks[1].task_id, "task-2")
+        self.assertEqual(action.tasks[1].completion_criteria, "成功读取")
+
+    def test_rejects_create_plan_with_non_list_tasks(self) -> None:
+        from min_agent.deepseek_llm import DeepSeekLLM
+        from min_agent.types import AgentContext, ToolSpec
+
+        llm = DeepSeekLLM(
+            client=StubClient(
+                '{"kind":"create_plan","tasks":"not-a-list","reason":"bad"}'
+            ),
+            model="deepseek-v4-flash",
+        )
+        context = AgentContext(
+            user_goal="测试",
+            workspace="ws",
+            available_tools=[ToolSpec(name="read_file", description="Read")],
+            observations=[],
+        )
+
+        action = llm.decide(context)
+        self.assertEqual(action.kind, "final_answer")
+        self.assertFalse(action.success)
+
+    def test_rejects_create_plan_with_one_task(self) -> None:
+        from min_agent.deepseek_llm import DeepSeekLLM
+        from min_agent.types import AgentContext, ToolSpec
+
+        llm = DeepSeekLLM(
+            client=StubClient(
+                '{"kind":"create_plan","tasks":['
+                '{"task_id":"task-1","title":"One task","completion_criteria":"done"}'
+                '],"reason":"single task"}'
+            ),
+            model="deepseek-v4-flash",
+        )
+        context = AgentContext(
+            user_goal="测试",
+            workspace="ws",
+            available_tools=[ToolSpec(name="read_file", description="Read")],
+            observations=[],
+        )
+
+        action = llm.decide(context)
+        self.assertEqual(action.kind, "final_answer")
+        self.assertFalse(action.success)
+
+    def test_rejects_create_plan_with_six_tasks(self) -> None:
+        from min_agent.deepseek_llm import DeepSeekLLM
+        from min_agent.types import AgentContext, ToolSpec
+
+        tasks_json = ",".join(
+            f'{{"task_id":"task-{i}","title":"T{i}","completion_criteria":"C{i}"}}'
+            for i in range(1, 7)
+        )
+        llm = DeepSeekLLM(
+            client=StubClient(f'{{"kind":"create_plan","tasks":[{tasks_json}],"reason":"too many"}}'),
+            model="deepseek-v4-flash",
+        )
+        context = AgentContext(
+            user_goal="测试",
+            workspace="ws",
+            available_tools=[ToolSpec(name="read_file", description="Read")],
+            observations=[],
+        )
+
+        action = llm.decide(context)
+        self.assertEqual(action.kind, "final_answer")
+        self.assertFalse(action.success)
+
+    def test_rejects_create_plan_with_non_sequential_ids(self) -> None:
+        from min_agent.deepseek_llm import DeepSeekLLM
+        from min_agent.types import AgentContext, ToolSpec
+
+        llm = DeepSeekLLM(
+            client=StubClient(
+                '{"kind":"create_plan","tasks":['
+                '{"task_id":"task-1","title":"T1","completion_criteria":"C1"},'
+                '{"task_id":"task-3","title":"T3","completion_criteria":"C3"}'
+                '],"reason":"bad ids"}'
+            ),
+            model="deepseek-v4-flash",
+        )
+        context = AgentContext(
+            user_goal="测试",
+            workspace="ws",
+            available_tools=[ToolSpec(name="read_file", description="Read")],
+            observations=[],
+        )
+
+        action = llm.decide(context)
+        self.assertEqual(action.kind, "final_answer")
+        self.assertFalse(action.success)
+
+    def test_rejects_create_plan_with_blank_title(self) -> None:
+        from min_agent.deepseek_llm import DeepSeekLLM
+        from min_agent.types import AgentContext, ToolSpec
+
+        llm = DeepSeekLLM(
+            client=StubClient(
+                '{"kind":"create_plan","tasks":['
+                '{"task_id":"task-1","title":"  ","completion_criteria":"C1"},'
+                '{"task_id":"task-2","title":"T2","completion_criteria":"C2"}'
+                '],"reason":"blank title"}'
+            ),
+            model="deepseek-v4-flash",
+        )
+        context = AgentContext(
+            user_goal="测试",
+            workspace="ws",
+            available_tools=[ToolSpec(name="read_file", description="Read")],
+            observations=[],
+        )
+
+        action = llm.decide(context)
+        self.assertEqual(action.kind, "final_answer")
+        self.assertFalse(action.success)
+
+    def test_rejects_create_plan_with_missing_task_id(self) -> None:
+        from min_agent.deepseek_llm import DeepSeekLLM
+        from min_agent.types import AgentContext, ToolSpec
+
+        llm = DeepSeekLLM(
+            client=StubClient(
+                '{"kind":"create_plan","tasks":['
+                '{"title":"No ID","completion_criteria":"C1"},'
+                '{"task_id":"task-2","title":"T2","completion_criteria":"C2"}'
+                '],"reason":"missing id"}'
+            ),
+            model="deepseek-v4-flash",
+        )
+        context = AgentContext(
+            user_goal="测试",
+            workspace="ws",
+            available_tools=[ToolSpec(name="read_file", description="Read")],
+            observations=[],
+        )
+
+        action = llm.decide(context)
+        self.assertEqual(action.kind, "final_answer")
+        self.assertFalse(action.success)
+
+    def test_parser_rejection_preserves_model_call_metadata(self) -> None:
+        from min_agent.deepseek_llm import DeepSeekLLM
+        from min_agent.types import AgentContext, ToolSpec
+
+        raw = '{"kind":"create_plan","tasks":[],"reason":"empty"}'
+        llm = DeepSeekLLM(client=StubClient(raw), model="deepseek-v4-flash")
+        context = AgentContext(
+            user_goal="测试",
+            workspace="ws",
+            available_tools=[ToolSpec(name="read_file", description="Read")],
+            observations=[],
+        )
+
+        action = llm.decide(context)
+        self.assertIn("model_call", action.metadata)
+        self.assertEqual(action.metadata["model_call"]["response"]["content"], raw)
+
+
+class DeepSeekLLMV08CompleteTaskTest(unittest.TestCase):
+    def test_parses_valid_complete_task(self) -> None:
+        from min_agent.deepseek_llm import DeepSeekLLM
+        from min_agent.types import AgentContext, ToolSpec
+
+        llm = DeepSeekLLM(
+            client=StubClient(
+                '{"kind":"complete_task","task_id":"task-1",'
+                '"completion_evidence":"Observation 1 contains a successful list_dir result",'
+                '"evidence_observation_indexes":[1],'
+                '"reason":"The current completion criterion is satisfied"}'
+            ),
+            model="deepseek-v4-flash",
+        )
+        context = AgentContext(
+            user_goal="复合目标",
+            workspace="ws",
+            available_tools=[ToolSpec(name="list_dir", description="List")],
+            observations=[],
+        )
+
+        action = llm.decide(context)
+
+        self.assertEqual(action.kind, "complete_task")
+        self.assertEqual(action.task_id, "task-1")
+        self.assertIn("Observation 1", action.completion_evidence or "")
+        self.assertEqual(action.evidence_observation_indexes, [1])
+
+    def test_rejects_complete_task_with_missing_task_id(self) -> None:
+        from min_agent.deepseek_llm import DeepSeekLLM
+        from min_agent.types import AgentContext, ToolSpec
+
+        llm = DeepSeekLLM(
+            client=StubClient(
+                '{"kind":"complete_task",'
+                '"completion_evidence":"done",'
+                '"evidence_observation_indexes":[1],'
+                '"reason":"ok"}'
+            ),
+            model="deepseek-v4-flash",
+        )
+        context = AgentContext(
+            user_goal="测试",
+            workspace="ws",
+            available_tools=[ToolSpec(name="read_file", description="Read")],
+            observations=[],
+        )
+
+        action = llm.decide(context)
+        self.assertEqual(action.kind, "final_answer")
+        self.assertFalse(action.success)
+
+    def test_rejects_complete_task_with_empty_evidence_observation_indexes(self) -> None:
+        from min_agent.deepseek_llm import DeepSeekLLM
+        from min_agent.types import AgentContext, ToolSpec
+
+        llm = DeepSeekLLM(
+            client=StubClient(
+                '{"kind":"complete_task","task_id":"task-1",'
+                '"completion_evidence":"done",'
+                '"evidence_observation_indexes":[],'
+                '"reason":"ok"}'
+            ),
+            model="deepseek-v4-flash",
+        )
+        context = AgentContext(
+            user_goal="测试",
+            workspace="ws",
+            available_tools=[ToolSpec(name="read_file", description="Read")],
+            observations=[],
+        )
+
+        action = llm.decide(context)
+        self.assertEqual(action.kind, "final_answer")
+        self.assertFalse(action.success)
+
+    def test_rejects_complete_task_with_non_integer_index(self) -> None:
+        from min_agent.deepseek_llm import DeepSeekLLM
+        from min_agent.types import AgentContext, ToolSpec
+
+        llm = DeepSeekLLM(
+            client=StubClient(
+                '{"kind":"complete_task","task_id":"task-1",'
+                '"completion_evidence":"done",'
+                '"evidence_observation_indexes":["1"],'
+                '"reason":"ok"}'
+            ),
+            model="deepseek-v4-flash",
+        )
+        context = AgentContext(
+            user_goal="测试",
+            workspace="ws",
+            available_tools=[ToolSpec(name="read_file", description="Read")],
+            observations=[],
+        )
+
+        action = llm.decide(context)
+        self.assertEqual(action.kind, "final_answer")
+        self.assertFalse(action.success)
+
+    def test_rejects_complete_task_with_boolean_index(self) -> None:
+        from min_agent.deepseek_llm import DeepSeekLLM
+        from min_agent.types import AgentContext, ToolSpec
+
+        llm = DeepSeekLLM(
+            client=StubClient(
+                '{"kind":"complete_task","task_id":"task-1",'
+                '"completion_evidence":"done",'
+                '"evidence_observation_indexes":[true],'
+                '"reason":"ok"}'
+            ),
+            model="deepseek-v4-flash",
+        )
+        context = AgentContext(
+            user_goal="测试",
+            workspace="ws",
+            available_tools=[ToolSpec(name="read_file", description="Read")],
+            observations=[],
+        )
+
+        action = llm.decide(context)
+        self.assertEqual(action.kind, "final_answer")
+        self.assertFalse(action.success)
+
+
+class DeepSeekLLMV08PromptTest(unittest.TestCase):
+    def test_system_prompt_includes_create_plan_example(self) -> None:
+        from min_agent.deepseek_llm import DeepSeekLLM
+
+        llm = DeepSeekLLM(
+            client=StubClient('{"kind":"final_answer","message":"ok","reason":"done","success":true}'),
+            model="deepseek-v4-flash",
+        )
+
+        system_prompt = llm._system_prompt()
+
+        self.assertIn("create_plan", system_prompt)
+        self.assertIn("task_id", system_prompt)
+        self.assertIn("completion_criteria", system_prompt)
+
+    def test_system_prompt_includes_complete_task_example(self) -> None:
+        from min_agent.deepseek_llm import DeepSeekLLM
+
+        llm = DeepSeekLLM(
+            client=StubClient('{"kind":"final_answer","message":"ok","reason":"done","success":true}'),
+            model="deepseek-v4-flash",
+        )
+
+        system_prompt = llm._system_prompt()
+
+        self.assertIn("complete_task", system_prompt)
+        self.assertIn("evidence_observation_indexes", system_prompt)
+
+    def test_system_prompt_forbids_one_task_plan(self) -> None:
+        from min_agent.deepseek_llm import DeepSeekLLM
+
+        llm = DeepSeekLLM(
+            client=StubClient('{"kind":"final_answer","message":"ok","reason":"done","success":true}'),
+            model="deepseek-v4-flash",
+        )
+
+        system_prompt = llm._system_prompt()
+
+        self.assertIn("2–5", system_prompt)
+
+    def test_output_contract_allows_all_four_kinds(self) -> None:
+        from min_agent.deepseek_llm import DeepSeekLLM
+        from min_agent.types import AgentContext, ToolSpec
+
+        client = StubClient('{"kind":"final_answer","message":"ok","reason":"done","success":true}')
+        llm = DeepSeekLLM(client=client, model="deepseek-v4-flash")
+        context = AgentContext(
+            user_goal="测试",
+            workspace="ws",
+            available_tools=[ToolSpec(name="read_file", description="Read")],
+            observations=[],
+        )
+
+        llm.decide(context)
+
+        _, user_prompt = client.calls[0]
+        self.assertIn("create_plan", user_prompt)
+        self.assertIn("complete_task", user_prompt)
+        self.assertIn("tool_call", user_prompt)
+        self.assertIn("final_answer", user_prompt)

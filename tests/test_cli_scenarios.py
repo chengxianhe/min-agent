@@ -540,3 +540,275 @@ class CliContextInjectionTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ===== V0.8 复合目标场景测试 =====
+
+
+class CliCompositeScenarioTest(unittest.TestCase):
+    def _composite_goal(self) -> str:
+        return "阅读 workspace 中的项目资料，获取当前时间，并生成一份带时间的 summary.md。"
+
+    def test_composite_success_scenario(self) -> None:
+        from min_agent.cli import main
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "workspace"
+            runs = root / "runs"
+            workspace.mkdir()
+            (workspace / "project.md").write_text("# 项目\nmin-agent-demo", encoding="utf-8")
+            (workspace / "architecture.md").write_text("# 架构\nAgentLoop", encoding="utf-8")
+
+            fake_time = "2026-07-07 10:30:00 CST"
+            fake_result = subprocess.CompletedProcess(
+                args=["/bin/date", "+%Y-%m-%d %H:%M:%S %Z"],
+                returncode=0,
+                stdout=fake_time + "\n",
+                stderr="",
+            )
+
+            with patch("builtins.input", return_value="y"), \
+                 patch("subprocess.run", return_value=fake_result):
+                exit_code = main(
+                    [
+                        self._composite_goal(),
+                        "--workspace",
+                        str(workspace),
+                        "--runs-dir",
+                        str(runs),
+                        "--no-viewer",
+                        "--no-browser",
+                        "--step-delay",
+                        "0",
+                    ]
+                )
+            record = load_single_run_record(runs)
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(record["status"], "completed")
+
+            event_phases = phases(record)
+
+            # plan_created 在第一个 tool_started 之前
+            self.assertIn("plan_created", event_phases)
+            plan_idx = event_phases.index("plan_created")
+            tool_start_indices = [
+                i for i, e in enumerate(record["events"])
+                if e["phase"] == "tool_started"
+            ]
+            self.assertLess(plan_idx, tool_start_indices[0])
+
+            # 四个固定任务定义
+            plan_event = record["events"][plan_idx]
+            tasks = plan_event["output"]["tasks"]
+            self.assertEqual(len(tasks), 4)
+            task_ids = [t["task_id"] for t in tasks]
+            self.assertEqual(task_ids, ["task-1", "task-2", "task-3", "task-4"])
+
+            # 状态转换 pending -> running -> completed
+            self.assertIn("task_started", event_phases)
+            self.assertIn("task_completed", event_phases)
+
+            # task-scoped tool events 携带正确 task_id
+            for e in record["events"]:
+                if e["phase"] in ("tool_started", "tool_finished", "observation_added"):
+                    self.assertIsNotNone(e.get("task_id"), f"{e['phase']} should have task_id")
+
+            # summary.md 被创建
+            summary_exists = (workspace / "summary.md").exists()
+            self.assertTrue(summary_exists)
+            if summary_exists:
+                content = (workspace / "summary.md").read_text(encoding="utf-8")
+                self.assertIn("project.md", content)
+
+            # 两个危险工具都保留了权限请求/解析
+            self.assertIn("permission_requested", event_phases)
+            perm_requests = [
+                e for e in record["events"] if e["phase"] == "permission_requested"
+            ]
+            self.assertEqual(len(perm_requests), 2)
+
+    def test_middle_task_rejection_scenario(self) -> None:
+        from min_agent.cli import main
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "workspace"
+            runs = root / "runs"
+            workspace.mkdir()
+            (workspace / "project.md").write_text("# 项目\nmin-agent-demo", encoding="utf-8")
+            (workspace / "architecture.md").write_text("# 架构\nAgentLoop", encoding="utf-8")
+
+            # 拒绝 run_command（task-3 的第一个权限请求）
+            call_count = [0]
+
+            def selective_reject(prompt: str) -> str:
+                call_count[0] += 1
+                # 第一次是 run_command（task-3），拒绝它
+                if call_count[0] == 1:
+                    return "n"
+                return "y"
+
+            with patch("builtins.input", side_effect=selective_reject):
+                exit_code = main(
+                    [
+                        self._composite_goal(),
+                        "--workspace",
+                        str(workspace),
+                        "--runs-dir",
+                        str(runs),
+                        "--no-viewer",
+                        "--no-browser",
+                        "--step-delay",
+                        "0",
+                    ]
+                )
+            record = load_single_run_record(runs)
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(record["status"], "failed")
+
+        event_phases = phases(record)
+        self.assertIn("task_failed", event_phases)
+        self.assertIn("task_skipped", event_phases)
+
+        # 没有 tool_started(run_command)
+        self.assertNotIn("run_command", tool_started_names(record))
+
+        # summary.md 不应该存在
+        summary_exists = (workspace / "summary.md").exists()
+        self.assertFalse(summary_exists)
+
+    def test_final_task_rejection_scenario(self) -> None:
+        from min_agent.cli import main
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "workspace"
+            runs = root / "runs"
+            workspace.mkdir()
+            (workspace / "project.md").write_text("# 项目\nmin-agent-demo", encoding="utf-8")
+            (workspace / "architecture.md").write_text("# 架构\nAgentLoop", encoding="utf-8")
+
+            fake_time = "2026-07-07 10:30:00 CST"
+            fake_result = subprocess.CompletedProcess(
+                args=["/bin/date", "+%Y-%m-%d %H:%M:%S %Z"],
+                returncode=0,
+                stdout=fake_time + "\n",
+                stderr="",
+            )
+
+            # 批准 run_command，拒绝 write_file
+            call_count = [0]
+
+            def reject_write(prompt: str) -> str:
+                call_count[0] += 1
+                if call_count[0] == 2:
+                    return "n"
+                return "y"
+
+            with patch("builtins.input", side_effect=reject_write), \
+                 patch("subprocess.run", return_value=fake_result):
+                exit_code = main(
+                    [
+                        self._composite_goal(),
+                        "--workspace",
+                        str(workspace),
+                        "--runs-dir",
+                        str(runs),
+                        "--no-viewer",
+                        "--no-browser",
+                        "--step-delay",
+                        "0",
+                    ]
+                )
+            record = load_single_run_record(runs)
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(record["status"], "failed")
+
+        event_phases = phases(record)
+        self.assertIn("task_failed", event_phases)
+
+        # run_command 已执行
+        self.assertIn("run_command", tool_started_names(record))
+        # write_file 未执行
+        self.assertNotIn("write_file", tool_started_names(record))
+
+        summary_exists = (workspace / "summary.md").exists()
+        self.assertFalse(summary_exists)
+
+    def test_simple_time_goal_no_plan_events(self) -> None:
+        from min_agent.cli import main
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "workspace"
+            runs = root / "runs"
+            workspace.mkdir()
+
+            fake_time = "2026-07-07 10:30:00 CST"
+            fake_result = subprocess.CompletedProcess(
+                args=["/bin/date", "+%Y-%m-%d %H:%M:%S %Z"],
+                returncode=0,
+                stdout=fake_time + "\n",
+                stderr="",
+            )
+
+            with patch("builtins.input", return_value="y"), \
+                 patch("subprocess.run", return_value=fake_result):
+                exit_code = main(
+                    [
+                        "现在几点？",
+                        "--workspace",
+                        str(workspace),
+                        "--runs-dir",
+                        str(runs),
+                        "--no-viewer",
+                        "--no-browser",
+                        "--step-delay",
+                        "0",
+                    ]
+                )
+            record = load_single_run_record(runs)
+
+        self.assertEqual(exit_code, 0)
+        event_phases = phases(record)
+        self.assertNotIn("plan_created", event_phases)
+        self.assertNotIn("task_started", event_phases)
+        self.assertNotIn("task_completed", event_phases)
+
+    def test_multi_file_summary_no_plan_events(self) -> None:
+        from min_agent.cli import main
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "workspace"
+            runs = root / "runs"
+            workspace.mkdir()
+            (workspace / "project.md").write_text("# 项目\nmin-agent-demo", encoding="utf-8")
+            (workspace / "architecture.md").write_text("# 架构\nAgentLoop", encoding="utf-8")
+
+            exit_code = main(
+                [
+                    "请阅读这个工作区里的资料，并总结这个 demo 是怎么工作的",
+                    "--workspace",
+                    str(workspace),
+                    "--runs-dir",
+                    str(runs),
+                    "--no-viewer",
+                    "--no-browser",
+                    "--step-delay",
+                    "0",
+                ]
+            )
+            record = load_single_run_record(runs)
+
+        self.assertEqual(exit_code, 0)
+        event_phases = phases(record)
+        self.assertNotIn("plan_created", event_phases)
+        self.assertNotIn("task_started", event_phases)
+        self.assertNotIn("task_completed", event_phases)
+        self.assertNotIn("task_failed", event_phases)
+        self.assertNotIn("task_skipped", event_phases)
