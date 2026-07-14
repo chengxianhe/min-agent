@@ -8,6 +8,7 @@ from min_agent.types import (
     RunMemory,
     RunMetadata,
     TaskSnapshot,
+    TaskArtifact,
     ToolCatalogEntry,
     ToolSpec,
     WorkspaceConfig,
@@ -37,6 +38,7 @@ class ContextBuilder:
         started_at: str = "",
         task_plan: list[TaskSnapshot] | None = None,
         current_task_id: str | None = None,
+        inherited_task_artifacts: list[TaskArtifact] | None = None,
     ) -> AgentContext:
         # 首次调用时加载运行级基础上下文（运行期间不变）
         if self._loader is not None and not self._base_context_loaded:
@@ -62,4 +64,5 @@ class ContextBuilder:
             selected_project_content=list(selected_project_content or []),
             task_plan=list(task_plan) if task_plan else [],
             current_task_id=current_task_id,
+            inherited_task_artifacts=list(inherited_task_artifacts or []),
         )

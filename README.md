@@ -157,6 +157,22 @@ V0.8 的边界：
 - 不动态重排、重试、恢复或重新规划
 - 不并行任务、嵌套子任务或任务依赖图
 
+## V0.9: 可观察的任务产物与跨任务传递
+
+V0.9 让复合任务的每个已完成子任务存储一份结构化任务产物。产物包含主内容、当前任务内成功 Observation 的证据索引和创建 step；后续任务只能通过独立的 `inherited_task_artifacts` 上下文使用前序成果，不能读取前序任务的原始 Observation 或选中文件内容。
+
+标准复合命令保持不变：
+
+```bash
+PYTHONPATH=src python3 -m min_agent.cli \
+  "阅读 workspace 中的项目资料，获取当前时间，并生成一份带时间的 summary.md。" \
+  --workspace examples/workspace
+```
+
+这会依次请求 `run_command/get_current_time` 和 `write_file(summary.md)` 的 CLI 权限。成功时四个任务各有一份可用产物；拒绝或失败时，当前及跳过任务产生可观察的 `task_artifact_missing` 事件，但不会存入可用产物。
+
+Trace Viewer 的页面改动只发生在任务计划栏：点击任务卡可查看它的主产物、当前任务证据、继承来源和后续流向。简单任务继续没有任务计划和产物 UI。V0.9 不增加新工具、动态计划、重试、并行或网页审批。
+
 ## 运行 demo
 
 ```bash

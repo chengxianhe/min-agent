@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 ActionKind = Literal["create_plan", "complete_task", "tool_call", "final_answer"]
 TaskStatus = Literal["pending", "running", "completed", "failed", "skipped"]
+TaskArtifactStatus = Literal["available", "missing"]
 EventPhase = Literal[
     "run_started",
     "context_built",
@@ -15,6 +16,8 @@ EventPhase = Literal[
     "task_completed",
     "task_failed",
     "task_skipped",
+    "task_artifact_created",
+    "task_artifact_missing",
     "tool_started",
     "tool_finished",
     "observation_added",
@@ -61,15 +64,56 @@ class TaskDefinition:
 
 
 @dataclass(frozen=True)
+class TaskArtifactDraft:
+    """模型可提交、但不包含运行时归属和溯源字段的任务产物草稿。"""
+    title: str
+    content: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class TaskArtifact:
+    """由运行时存储的、可供后续任务继承的稳定任务产物。"""
+    task_id: str
+    title: str
+    content: str
+    evidence_observation_indexes: list[int]
+    created_at_step: int
+    status: TaskArtifactStatus
+    missing_reason: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "task_id": self.task_id,
+            "title": self.title,
+            "content": self.content,
+            "evidence_observation_indexes": list(self.evidence_observation_indexes),
+            "created_at_step": self.created_at_step,
+            "status": self.status,
+            "missing_reason": self.missing_reason,
+        }
+
+
+@dataclass(frozen=True)
 class TaskSnapshot:
     task_id: str
     title: str
     completion_criteria: str
     status: TaskStatus
     failure_reason: str = ""
+    artifact: TaskArtifact | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        return {
+            "task_id": self.task_id,
+            "title": self.title,
+            "completion_criteria": self.completion_criteria,
+            "status": self.status,
+            "failure_reason": self.failure_reason,
+            "artifact": self.artifact.to_dict() if self.artifact else None,
+        }
 
 
 @dataclass(frozen=True)
@@ -100,6 +144,7 @@ class AgentAction:
     task_id: str | None = None
     completion_evidence: str | None = None
     evidence_observation_indexes: list[int] = field(default_factory=list)
+    task_artifact: TaskArtifactDraft | None = None
 
     @classmethod
     def tool_call(
@@ -138,6 +183,7 @@ class AgentAction:
         evidence_observation_indexes: list[int],
         reason: str,
         metadata: dict[str, Any] | None = None,
+        task_artifact: TaskArtifactDraft | None = None,
     ) -> AgentAction:
         return cls(
             kind="complete_task",
@@ -146,6 +192,7 @@ class AgentAction:
             evidence_observation_indexes=list(evidence_observation_indexes),
             reason=reason,
             metadata=metadata or {},
+            task_artifact=task_artifact,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -161,6 +208,7 @@ class AgentAction:
             "task_id": self.task_id,
             "completion_evidence": self.completion_evidence,
             "evidence_observation_indexes": list(self.evidence_observation_indexes),
+            "task_artifact": self.task_artifact.to_dict() if self.task_artifact else None,
         }
         return result
 
@@ -254,6 +302,7 @@ class AgentContext:
     # === V0.8 新增字段 ===
     task_plan: list[TaskSnapshot] = field(default_factory=list)
     current_task_id: str | None = None
+    inherited_task_artifacts: list[TaskArtifact] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {
@@ -275,6 +324,9 @@ class AgentContext:
         if self.task_plan:
             result["task_plan"] = [t.to_dict() for t in self.task_plan]
             result["current_task_id"] = self.current_task_id
+            result["inherited_task_artifacts"] = [
+                artifact.to_dict() for artifact in self.inherited_task_artifacts
+            ]
         return result
 
 

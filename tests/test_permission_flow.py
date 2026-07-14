@@ -572,6 +572,80 @@ class PermissionFlowTest(unittest.TestCase):
         ]
         self.assertEqual(tool_started, [])
 
+    def test_planned_permission_rejection_stops_plan_and_records_missing_artifacts(self) -> None:
+        from min_agent.agent_loop import AgentLoop
+        from min_agent.context_builder import ContextBuilder
+        from min_agent.tool_registry import ToolRegistry
+        from min_agent.trace_recorder import TraceRecorder
+        from min_agent.types import AgentAction, AgentContext, TaskDefinition, ToolResult, ToolSpec
+
+        class PlannedWriteModel:
+            def __init__(self) -> None:
+                self._step = 0
+
+            def decide(self, context: AgentContext) -> AgentAction:
+                self._step += 1
+                if self._step == 1:
+                    return AgentAction.create_plan(
+                        [
+                            TaskDefinition("task-1", "写入摘要", "summary.md 创建成功"),
+                            TaskDefinition("task-2", "确认结果", "摘要可供最终回答使用"),
+                        ],
+                        "Two outcomes",
+                    )
+                return AgentAction.tool_call(
+                    "write_file",
+                    {"path": "summary.md", "content": "summary"},
+                    "Need persisted summary",
+                )
+
+        tool_calls: list[dict] = []
+        registry = ToolRegistry()
+        registry.register(
+            ToolSpec(name="write_file", description="Write", requires_permission=True),
+            lambda args: (
+                tool_calls.append(args)
+                or ToolResult(success=True, content="written")
+            ),
+        )
+        recorder = TraceRecorder(user_goal="planned write", workspace="ws")
+        loop = AgentLoop(
+            context_builder=ContextBuilder(),
+            llm=PlannedWriteModel(),
+            tools=registry,
+            recorder=recorder,
+            workspace="ws",
+            step_delay_seconds=0,
+            permission_callback=lambda _action, _details: False,
+        )
+
+        result = loop.run("planned write")
+        events = recorder.history()
+
+        self.assertFalse(result.success)
+        self.assertEqual(tool_calls, [])
+        self.assertNotIn("tool_started", [event.phase for event in events])
+        lifecycle = [
+            (event.phase, event.task_id)
+            for event in events
+            if event.phase in {
+                "permission_resolved",
+                "task_failed",
+                "task_skipped",
+                "task_artifact_missing",
+            }
+        ]
+        self.assertEqual(
+            lifecycle,
+            [
+                ("permission_resolved", "task-1"),
+                ("task_failed", "task-1"),
+                ("task_artifact_missing", "task-1"),
+                ("task_skipped", "task-2"),
+                ("task_artifact_missing", "task-2"),
+            ],
+        )
+
     def test_existing_write_file_approval_and_rejection_unchanged(self) -> None:
         from min_agent.agent_loop import AgentLoop
         from min_agent.context_builder import ContextBuilder

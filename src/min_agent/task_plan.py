@@ -6,11 +6,41 @@ TaskPlan 拥有所有合法的任务状态转换。它接收 TaskDefinition 列�
 
 from __future__ import annotations
 
-from min_agent.types import Observation, TaskDefinition, TaskSnapshot, TaskStatus
+from min_agent.types import (
+    Observation,
+    TaskArtifact,
+    TaskArtifactDraft,
+    TaskDefinition,
+    TaskSnapshot,
+    TaskStatus,
+)
 
 
 class TaskPlanError(ValueError):
     """任务计划状态转换非法。"""
+
+
+class CompletionResult(tuple):
+    """兼容 V0.8 快照属性访问的 (TaskSnapshot, TaskArtifact) 返回值。"""
+
+    def __new__(cls, snapshot: TaskSnapshot, artifact: TaskArtifact):
+        return super().__new__(cls, (snapshot, artifact))
+
+    @property
+    def snapshot(self) -> TaskSnapshot:
+        return self[0]
+
+    @property
+    def artifact(self) -> TaskArtifact:
+        return self[1]
+
+    @property
+    def status(self) -> TaskStatus:
+        return self.snapshot.status
+
+    @property
+    def task_id(self) -> str:
+        return self.snapshot.task_id
 
 
 class TaskPlan:
@@ -20,6 +50,7 @@ class TaskPlan:
         self._definitions: list[TaskDefinition] = list(definitions)
         self._statuses: dict[str, TaskStatus] = {}
         self._failure_reasons: dict[str, str] = {}
+        self._artifacts: dict[str, TaskArtifact] = {}
         for d in self._definitions:
             self._statuses[d.task_id] = "pending"
 
@@ -63,6 +94,7 @@ class TaskPlan:
                 completion_criteria=d.completion_criteria,
                 status=self._statuses[d.task_id],
                 failure_reason=self._failure_reasons.get(d.task_id, ""),
+                artifact=self._artifacts.get(d.task_id),
             )
             for d in self._definitions
         ]
@@ -82,6 +114,22 @@ class TaskPlan:
     def all_completed(self) -> bool:
         """所有任务是否都已完成。"""
         return all(self._statuses[d.task_id] == "completed" for d in self._definitions)
+
+    def artifacts(self) -> list[TaskArtifact]:
+        return [self._artifacts[d.task_id] for d in self._definitions if d.task_id in self._artifacts]
+
+    def artifact_for(self, task_id: str) -> TaskArtifact | None:
+        return self._artifacts.get(task_id)
+
+    def later_task_ids(self, task_id: str) -> list[str]:
+        found = False
+        later: list[str] = []
+        for definition in self._definitions:
+            if found:
+                later.append(definition.task_id)
+            elif definition.task_id == task_id:
+                found = True
+        return later
 
     # ---- 状态转换 ----
 
@@ -111,7 +159,9 @@ class TaskPlan:
         completion_evidence: str,
         evidence_observation_indexes: list[int],
         observations: list[Observation],
-    ) -> TaskSnapshot:
+        task_artifact: TaskArtifactDraft | None,
+        created_at_step: int,
+    ) -> CompletionResult:
         """将当前任务标记为完成，需提供有效证据。"""
         current = self.current_task()
         if current is None:
@@ -124,15 +174,28 @@ class TaskPlan:
         self._validate_completion_evidence(
             task_id, completion_evidence, evidence_observation_indexes, observations
         )
+        self._validate_artifact(task_artifact, created_at_step)
 
+        assert task_artifact is not None
+        artifact = TaskArtifact(
+            task_id=task_id,
+            title=task_artifact.title.strip(),
+            content=task_artifact.content.strip(),
+            evidence_observation_indexes=list(evidence_observation_indexes),
+            created_at_step=created_at_step,
+            status="available",
+        )
+        self._artifacts[task_id] = artifact
         self._statuses[task_id] = "completed"
         d = self._get_definition(task_id)
-        return TaskSnapshot(
+        completed = TaskSnapshot(
             task_id=d.task_id,
             title=d.title,
             completion_criteria=d.completion_criteria,
             status="completed",
+            artifact=artifact,
         )
+        return CompletionResult(completed, artifact)
 
     def fail_current(self, reason: str) -> tuple[TaskSnapshot, list[TaskSnapshot]]:
         """失败当前任务，跳过所有 pending 任务。返回 (failed_snapshot, skipped_snapshots)。"""
@@ -208,3 +271,16 @@ class TaskPlan:
                 raise TaskPlanError(
                     f"Observation {idx}（{obs.tool_name}）执行失败，不能作为完成证据"
                 )
+
+    @staticmethod
+    def _validate_artifact(
+        task_artifact: TaskArtifactDraft | None, created_at_step: int
+    ) -> None:
+        if task_artifact is None:
+            raise TaskPlanError("完成任务必须提供任务产物")
+        if not task_artifact.title.strip():
+            raise TaskPlanError("任务产物标题不能为空")
+        if not task_artifact.content.strip():
+            raise TaskPlanError("任务产物内容不能为空")
+        if not isinstance(created_at_step, int) or isinstance(created_at_step, bool) or created_at_step < 1:
+            raise TaskPlanError("任务产物创建 step 必须是正整数")

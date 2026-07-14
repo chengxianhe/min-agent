@@ -47,6 +47,8 @@ python3 -m unittest discover -s tests
 - 多文件总结会先 `list_dir`，再 `read_file`，最后产生 `final_answer`。
 - 写文件批准会先出现 `permission_requested` 和 `permission_resolved`，再执行 `tool_started(write_file)`。
 - 写文件拒绝不会执行 `tool_started(write_file)`，run record 状态为 `failed`。
+- V0.9 复合目标依次记录四个 `task_artifact_created`，任务 4 的 Context Build 只继承前序正式产物。
+- V0.9 中途拒绝会记录当前任务和跳过任务的 `task_artifact_missing`，且不会产生可用产物。
 
 ### 3. 浏览器验收
 
@@ -60,10 +62,12 @@ Trace Viewer 或页面结构相关改动必须做真实浏览器验收。`tests/
 - 权限申请、用户决策和工具执行能按事件顺序展示。
 - 浏览器 console 没有 JavaScript error。
 
+V0.9 额外检查：点击不同任务卡后，任务计划栏内的产物内容、当前任务证据、继承来源和后续流向会切换；简单任务不显示整个任务计划栏。
+
 能完成真实浏览器验收时，在交付说明中写：
 
 ```text
-browser manual smoke: PASS
+browser manual smoke: PASS - 2026-07-13 V0.9 success/failure/simple/narrow-width acceptance
 ```
 
 没有执行真实浏览器验收时，只能写：

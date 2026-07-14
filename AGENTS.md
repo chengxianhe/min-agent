@@ -195,6 +195,21 @@ V0.8 仍然不做：
 - 任务状态必须由真实执行结果驱动，不能仅由模型声称完成。
 - 现有 `write_file`、`run_command` 权限和 workspace 安全边界保持不变。
 
+## V0.9 边界
+
+V0.9 只增加：每个已完成计划任务的一份结构化任务产物、独立的 inherited artifacts 上下文，以及仅限任务计划模块的 Trace Viewer 产物展示。
+
+V0.9 不增加：动态改计划、重试、恢复、并行或任务依赖图；V0.8 的权限、命令白名单和 workspace 安全边界保持不变。
+
+## V0.9 任务产物规则
+
+- `TaskPlan` 和运行时拥有已存储产物；模型只能提交 `title` 和 `content` 草稿。
+- 完成证据只能引用当前任务成功的 Observation；继承产物不是当前任务证据。
+- 前序任务的原始 Observation 和 selected project content 不得进入后续任务工作上下文。
+- failed 或 skipped 任务不存入可用产物；missing 只通过 Trace 事件表达。
+- `FakeLLM` 不得保留跨任务隐藏状态；跨任务信息只能来自公开上下文中的 inherited artifacts。
+- Viewer 只读，页面改动只允许发生在 `#task-plan-panel` 内。
+
 ## V0.3 安全规则
 
 - `list_dir` 和 `read_file` 都只能访问指定 workspace 内路径。

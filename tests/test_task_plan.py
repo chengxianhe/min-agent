@@ -8,6 +8,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 
+def _draft(title: str = "测试产物", content: str = "测试内容"):
+    from min_agent.types import TaskArtifactDraft
+    return TaskArtifactDraft(title, content)
+
+
 class TaskPlanCreationTest(unittest.TestCase):
     def test_create_valid_two_task_plan(self) -> None:
         from min_agent.task_plan import TaskPlan
@@ -154,6 +159,8 @@ class TaskPlanTransitionTest(unittest.TestCase):
             "The directory listing succeeded",
             [1],
             observations,
+            _draft(),
+            1,
         )
         self.assertEqual(completed.status, "completed")
         self.assertEqual(completed.task_id, "task-1")
@@ -163,7 +170,7 @@ class TaskPlanTransitionTest(unittest.TestCase):
 
         self.plan.start_next()
         observations = [Observation("list_dir", {"path": "."}, ToolResult(success=True))]
-        self.plan.complete_current("task-1", "done", [1], observations)
+        self.plan.complete_current("task-1", "done", [1], observations, _draft(), 1)
         self.assertEqual([t.status for t in self.plan.snapshot()], ["completed", "pending"])
 
     def test_complete_current_rejects_wrong_task_id(self) -> None:
@@ -173,7 +180,7 @@ class TaskPlanTransitionTest(unittest.TestCase):
         self.plan.start_next()
         observations = [Observation("list_dir", {"path": "."}, ToolResult(success=True))]
         with self.assertRaises(TaskPlanError):
-            self.plan.complete_current("task-2", "done", [1], observations)
+            self.plan.complete_current("task-2", "done", [1], observations, _draft(), 1)
 
     def test_complete_current_rejects_empty_evidence(self) -> None:
         from min_agent.task_plan import TaskPlanError
@@ -182,7 +189,7 @@ class TaskPlanTransitionTest(unittest.TestCase):
         self.plan.start_next()
         observations = [Observation("list_dir", {"path": "."}, ToolResult(success=True))]
         with self.assertRaises(TaskPlanError):
-            self.plan.complete_current("task-1", "", [1], observations)
+            self.plan.complete_current("task-1", "", [1], observations, _draft(), 1)
 
     def test_complete_current_rejects_empty_indexes(self) -> None:
         from min_agent.task_plan import TaskPlanError
@@ -190,7 +197,7 @@ class TaskPlanTransitionTest(unittest.TestCase):
 
         self.plan.start_next()
         with self.assertRaises(TaskPlanError):
-            self.plan.complete_current("task-1", "done", [], [])
+            self.plan.complete_current("task-1", "done", [], [], _draft(), 1)
 
     def test_complete_current_rejects_duplicate_indexes(self) -> None:
         from min_agent.task_plan import TaskPlanError
@@ -202,7 +209,7 @@ class TaskPlanTransitionTest(unittest.TestCase):
             Observation("read_file", {"path": "notes.md"}, ToolResult(success=True)),
         ]
         with self.assertRaises(TaskPlanError):
-            self.plan.complete_current("task-1", "done", [1, 1], observations)
+            self.plan.complete_current("task-1", "done", [1, 1], observations, _draft(), 1)
 
     def test_complete_current_rejects_zero_index(self) -> None:
         from min_agent.task_plan import TaskPlanError
@@ -211,7 +218,7 @@ class TaskPlanTransitionTest(unittest.TestCase):
         self.plan.start_next()
         observations = [Observation("list_dir", {"path": "."}, ToolResult(success=True))]
         with self.assertRaises(TaskPlanError):
-            self.plan.complete_current("task-1", "done", [0], observations)
+            self.plan.complete_current("task-1", "done", [0], observations, _draft(), 1)
 
     def test_complete_current_rejects_negative_index(self) -> None:
         from min_agent.task_plan import TaskPlanError
@@ -220,7 +227,7 @@ class TaskPlanTransitionTest(unittest.TestCase):
         self.plan.start_next()
         observations = [Observation("list_dir", {"path": "."}, ToolResult(success=True))]
         with self.assertRaises(TaskPlanError):
-            self.plan.complete_current("task-1", "done", [-1], observations)
+            self.plan.complete_current("task-1", "done", [-1], observations, _draft(), 1)
 
     def test_complete_current_rejects_out_of_range_index(self) -> None:
         from min_agent.task_plan import TaskPlanError
@@ -229,7 +236,7 @@ class TaskPlanTransitionTest(unittest.TestCase):
         self.plan.start_next()
         observations = [Observation("list_dir", {"path": "."}, ToolResult(success=True))]
         with self.assertRaises(TaskPlanError):
-            self.plan.complete_current("task-1", "done", [99], observations)
+            self.plan.complete_current("task-1", "done", [99], observations, _draft(), 1)
 
     def test_complete_current_rejects_failed_observation(self) -> None:
         from min_agent.task_plan import TaskPlanError
@@ -240,7 +247,7 @@ class TaskPlanTransitionTest(unittest.TestCase):
             Observation("read_file", {"path": "missing.md"}, ToolResult(success=False, error="not found")),
         ]
         with self.assertRaises(TaskPlanError):
-            self.plan.complete_current("task-1", "done", [1], observations)
+            self.plan.complete_current("task-1", "done", [1], observations, _draft(), 1)
 
     def test_cannot_start_second_task_while_one_running(self) -> None:
         from min_agent.task_plan import TaskPlanError
@@ -254,7 +261,7 @@ class TaskPlanTransitionTest(unittest.TestCase):
 
         self.plan.start_next()
         observations = [Observation("list_dir", {"path": "."}, ToolResult(success=True))]
-        self.plan.complete_current("task-1", "done", [1], observations)
+        self.plan.complete_current("task-1", "done", [1], observations, _draft(), 1)
 
         started = self.plan.start_next()
         self.assertIsNotNone(started)
@@ -265,9 +272,9 @@ class TaskPlanTransitionTest(unittest.TestCase):
         from min_agent.types import Observation, ToolResult
 
         self.plan.start_next()
-        self.plan.complete_current("task-1", "done", [1], [Observation("list_dir", {}, ToolResult(success=True))])
+        self.plan.complete_current("task-1", "done", [1], [Observation("list_dir", {}, ToolResult(success=True))], _draft(), 1)
         self.plan.start_next()
-        self.plan.complete_current("task-2", "done", [1], [Observation("read_file", {}, ToolResult(success=True))])
+        self.plan.complete_current("task-2", "done", [1], [Observation("read_file", {}, ToolResult(success=True))], _draft(), 2)
 
         self.assertIsNone(self.plan.start_next())
 
@@ -276,9 +283,9 @@ class TaskPlanTransitionTest(unittest.TestCase):
 
         self.assertFalse(self.plan.all_completed())
         self.plan.start_next()
-        self.plan.complete_current("task-1", "done", [1], [Observation("list_dir", {}, ToolResult(success=True))])
+        self.plan.complete_current("task-1", "done", [1], [Observation("list_dir", {}, ToolResult(success=True))], _draft(), 1)
         self.plan.start_next()
-        self.plan.complete_current("task-2", "done", [1], [Observation("read_file", {}, ToolResult(success=True))])
+        self.plan.complete_current("task-2", "done", [1], [Observation("read_file", {}, ToolResult(success=True))], _draft(), 2)
         self.assertTrue(self.plan.all_completed())
 
     def test_snapshot_returns_copies_not_references(self) -> None:
@@ -313,6 +320,8 @@ class TaskPlanTransitionTest(unittest.TestCase):
             "list_dir succeeded",
             [1],
             observations,
+            _draft(),
+            1,
         )
         self.assertEqual(completed.status, "completed")
 
@@ -367,10 +376,10 @@ class TaskPlanFailureTest(unittest.TestCase):
 
         self.plan.start_next()
         observations = [Observation("list_dir", {"path": "."}, ToolResult(success=True))]
-        self.plan.complete_current("task-1", "done", [1], observations)
+        self.plan.complete_current("task-1", "done", [1], observations, _draft(), 1)
         # 已完成的任务不能被再次完成
         with self.assertRaises(TaskPlanError):
-            self.plan.complete_current("task-1", "done", [1], observations)
+            self.plan.complete_current("task-1", "done", [1], observations, _draft(), 1)
 
     def test_failed_status_is_terminal(self) -> None:
         from min_agent.task_plan import TaskPlanError
@@ -379,13 +388,58 @@ class TaskPlanFailureTest(unittest.TestCase):
         self.plan.fail_current("error")
         # 已失败的任务不能被完成
         with self.assertRaises(TaskPlanError):
-            self.plan.complete_current("task-1", "done", [1], [])
+            self.plan.complete_current("task-1", "done", [1], [], _draft(), 1)
 
     def test_skipped_status_is_terminal(self) -> None:
         self.plan.start_next()
         self.plan.fail_current("error")
         # 已跳过的任务不是 pending，start_next 返回 None
         self.assertIsNone(self.plan.start_next())
+
+
+class TaskPlanV09ArtifactTest(unittest.TestCase):
+    def test_completion_stores_one_validated_artifact(self) -> None:
+        from min_agent.task_plan import TaskPlan, TaskPlanError
+        from min_agent.types import Observation, TaskArtifactDraft, TaskDefinition, ToolResult
+
+        plan = TaskPlan.create([TaskDefinition("task-1", "T1", "C1"), TaskDefinition("task-2", "T2", "C2")])
+        plan.start_next()
+        observations = [Observation("list_dir", {}, ToolResult(success=True, content="project.md"))]
+        completed, artifact = plan.complete_current("task-1", "listed", [1], observations, TaskArtifactDraft("文件清单", "project.md"), 9)
+        self.assertEqual(completed.artifact, artifact)
+        self.assertEqual(plan.artifacts(), [artifact])
+
+        plan.start_next()
+        with self.assertRaises(TaskPlanError):
+            plan.complete_current("task-2", "read", [1], observations, None, 10)
+        self.assertEqual(plan.current_task().status, "running")
+
+    def test_artifact_validation_is_atomic_for_all_required_fields(self) -> None:
+        from min_agent.task_plan import TaskPlan, TaskPlanError
+        from min_agent.types import Observation, TaskArtifactDraft, TaskDefinition, ToolResult
+
+        invalid_cases = [
+            (None, 1, [1]),
+            (TaskArtifactDraft("", "content"), 1, [1]),
+            (TaskArtifactDraft("title", ""), 1, [1]),
+            (TaskArtifactDraft("title", "content"), 0, [1]),
+            (TaskArtifactDraft("title", "content"), True, [1]),
+            (TaskArtifactDraft("title", "content"), 1, [1, 1]),
+            (TaskArtifactDraft("title", "content"), 1, [True]),
+            (TaskArtifactDraft("title", "content"), 1, [2]),
+        ]
+        for draft, step, indexes in invalid_cases:
+            with self.subTest(draft=draft, step=step, indexes=indexes):
+                plan = TaskPlan.create([
+                    TaskDefinition("task-1", "T1", "C1"),
+                    TaskDefinition("task-2", "T2", "C2"),
+                ])
+                plan.start_next()
+                observation = Observation("list_dir", {}, ToolResult(success=True, content="project.md"))
+                with self.assertRaises(TaskPlanError):
+                    plan.complete_current("task-1", "listed", indexes, [observation], draft, step)
+                self.assertEqual(plan.current_task().status, "running")
+                self.assertEqual(plan.artifacts(), [])
 
 
 if __name__ == "__main__":

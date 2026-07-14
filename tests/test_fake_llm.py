@@ -1054,16 +1054,13 @@ class FakeLLMV08PerTaskDecisionTest(unittest.TestCase):
         self.assertEqual(action.kind, "complete_task")
         self.assertEqual(action.task_id, "task-3")
 
-    def test_task4_writes_summary_with_time_from_observation(self) -> None:
+    def test_task4_writes_summary_from_inherited_artifacts(self) -> None:
         from min_agent.fake_llm import FakeLLM
-        from min_agent.types import AgentContext, Observation, TaskSnapshot, ToolResult, ToolSpec
+        from min_agent.types import AgentContext, TaskArtifact, TaskSnapshot, ToolSpec
 
         llm = FakeLLM()
-        # Pre-populate cross-task accumulated state that task-2 and task-3 would have stored
-        llm._composite_read_contents = [
-            ("project.md", "# 项目\nmin-agent-demo"),
-        ]
-        llm._composite_time_result = "2026-07-07 10:30:00 CST"
+        self.assertFalse(hasattr(llm, "_composite_read_contents"))
+        self.assertFalse(hasattr(llm, "_composite_time_result"))
 
         plan = [
             TaskSnapshot("task-1", "查看项目文件", "获得文件列表", "completed"),
@@ -1080,6 +1077,10 @@ class FakeLLMV08PerTaskDecisionTest(unittest.TestCase):
             observations=[],
             task_plan=plan,
             current_task_id="task-4",
+            inherited_task_artifacts=[
+                TaskArtifact("task-2", "项目资料摘要", "## project.md\n# 项目 min-agent-demo", [1], 10, "available"),
+                TaskArtifact("task-3", "当前本地时间", "2026-07-07 10:30:00 CST", [1], 20, "available"),
+            ],
         )
 
         action = llm.decide(context)

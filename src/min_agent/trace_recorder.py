@@ -70,6 +70,11 @@ class TraceRecorder:
                 continue
         return event
 
+    def next_step(self) -> int:
+        """返回下一条事件将使用的 step，供运行时原子记录溯源。"""
+        with self._lock:
+            return len(self.events) + 1
+
     def save(self, runs_dir: Path | str, status: EventStatus) -> Path:
         self.ended_at = now_iso()
         output_dir = Path(runs_dir)

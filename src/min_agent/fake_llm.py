@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from min_agent.types import AgentAction, AgentContext, Observation, TaskDefinition, TaskSnapshot
+from min_agent.types import AgentAction, AgentContext, Observation, TaskArtifactDraft, TaskDefinition, TaskSnapshot
 
 
 FILE_PATTERN = re.compile(r"[\w./-]+\.md")
@@ -23,11 +23,6 @@ COMPOSITE_WRITE_TARGETS = ("summary.md", "总结.md", "report.md")
 
 
 class FakeLLM:
-    def __init__(self) -> None:
-        # V0.8: 跨任务累积状态，供 task-4 构建写入内容
-        self._composite_read_contents: list[tuple[str, str]] = []  # [(path, content), ...]
-        self._composite_time_result: str | None = None
-
     def decide(self, context: AgentContext) -> AgentAction:
         # --- V0.8: 如果已有计划，按计划执行 ---
         if context.task_plan:
@@ -451,6 +446,7 @@ class FakeLLM:
                 completion_evidence="list_dir Observation succeeded",
                 evidence_observation_indexes=[1],
                 reason="已成功获得 workspace 文件列表",
+                task_artifact=TaskArtifactDraft("Workspace Markdown 文件清单", list_obs.result.content),
             )
         return AgentAction.final_answer(
             message=f"查看项目文件失败：{list_obs.result.error}",
@@ -460,17 +456,17 @@ class FakeLLM:
 
     def _decide_task2(self, observations: list[Observation], context: AgentContext) -> AgentAction:
         """任务 2：读取并整理项目资料。"""
-        # 存储成功读取的内容
-        for obs in observations:
-            if obs.tool_name == "read_file" and obs.result.success:
-                path = obs.args.get("path", "unknown")
-                content = obs.result.content
-                if (path, content) not in self._composite_read_contents:
-                    self._composite_read_contents.append((path, content))
-
         read_obs_count = sum(1 for o in observations if o.tool_name == "read_file" and o.result.success)
         if read_obs_count < MAX_FAKE_READS:
-            paths_to_read = ["project.md", "architecture.md"]
+            listing = self._inherited_artifact(context, "task-1")
+            paths_to_read = self._artifact_markdown_paths(listing.content) if listing else []
+            paths_to_read = [path for path in paths_to_read if path not in {"summary.md", "minagent.md"}]
+            if not paths_to_read:
+                return AgentAction.final_answer(
+                    message="缺少 task-1 的 Workspace Markdown 文件清单，无法读取项目资料。",
+                    reason="任务 2 只能从继承的 task-1 产物选择文件",
+                    success=False,
+                )
             for path in paths_to_read:
                 obs = self._find_latest_read_observation(observations, path)
                 if obs is None:
@@ -489,6 +485,7 @@ class FakeLLM:
                 completion_evidence="read_file Observations succeeded",
                 evidence_observation_indexes=indexes,
                 reason="已成功读取相关 Markdown 文件",
+                task_artifact=TaskArtifactDraft("项目资料摘要", self._summary_from_reads(observations)),
             )
 
         return AgentAction.tool_call(
@@ -507,12 +504,12 @@ class FakeLLM:
                 reason="需要获取当前系统时间",
             )
         if time_obs.result.success:
-            self._composite_time_result = time_obs.result.content
             return AgentAction.complete_task(
                 task_id="task-3",
                 completion_evidence="run_command/get_current_time Observation succeeded",
                 evidence_observation_indexes=[1],
                 reason="已成功获取当前时间",
+                task_artifact=TaskArtifactDraft("当前本地时间", time_obs.result.content),
             )
         error = time_obs.result.error or "unknown"
         return AgentAction.final_answer(
@@ -525,18 +522,15 @@ class FakeLLM:
         """任务 4：生成并写入 summary.md。"""
         write_obs = self._find_write_observation(observations, "summary.md")
         if write_obs is None:
-            # 使用跨任务累积的内容构建 summary
-            content_parts = ["# Summary\n"]
-
-            for path, content in self._composite_read_contents:
-                lines = [line.strip() for line in content.splitlines() if line.strip()]
-                preview = " ".join(lines[:3])
-                content_parts.append(f"## {path}\n{preview}\n")
-
-            if self._composite_time_result:
-                content_parts.append(f"\nGenerated at: {self._composite_time_result}\n")
-
-            write_content = "\n".join(content_parts)
+            summary = self._inherited_artifact(context, "task-2")
+            current_time = self._inherited_artifact(context, "task-3")
+            if summary is None or current_time is None:
+                return AgentAction.final_answer(
+                    message="缺少项目资料摘要或当前时间产物，无法生成 summary.md。",
+                    reason="任务 4 必须使用 task-2 和 task-3 的已存储产物",
+                    success=False,
+                )
+            write_content = f"# Summary\n\n{summary.content}\n\nGenerated at: {current_time.content}\n"
 
             return AgentAction.tool_call(
                 tool_name="write_file",
@@ -554,6 +548,7 @@ class FakeLLM:
                 completion_evidence="write_file Observation succeeded",
                 evidence_observation_indexes=[len(observations)],
                 reason="已成功创建 summary.md",
+                task_artifact=TaskArtifactDraft("摘要文件写入结果", write_obs.result.content),
             )
 
         if write_obs.result.metadata.get("permission") == "rejected":
@@ -568,3 +563,30 @@ class FakeLLM:
             reason="write_file 失败",
             success=False,
         )
+
+    @staticmethod
+    def _inherited_artifact(context: AgentContext, task_id: str):
+        return next(
+            (artifact for artifact in context.inherited_task_artifacts
+             if artifact.task_id == task_id and artifact.status == "available"),
+            None,
+        )
+
+    def _artifact_markdown_paths(self, content: str) -> list[str]:
+        paths: list[str] = []
+        for path in FILE_PATTERN.findall(content):
+            if path not in paths:
+                paths.append(path)
+        return paths[:MAX_FAKE_READS]
+
+    def _summary_from_reads(self, observations: list[Observation]) -> str:
+        sections: list[str] = []
+        for observation in observations:
+            if observation.tool_name != "read_file" or not observation.result.success:
+                continue
+            path = observation.args.get("path")
+            if not isinstance(path, str):
+                continue
+            lines = [line.strip() for line in observation.result.content.splitlines() if line.strip()]
+            sections.append(f"## {path}\n{' '.join(lines[:3])}")
+        return "\n\n".join(sections)

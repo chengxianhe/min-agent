@@ -870,6 +870,158 @@ pre {
   display: none;
 }
 
+/* ===== V0.9 任务产物（仅任务计划栏） ===== */
+
+.task-plan-panel .task-artifact-panel {
+  margin-top: 16px;
+  border: 1px solid #d8dee8;
+  border-radius: 6px;
+  background: #f8fbff;
+  padding: 16px;
+}
+
+.task-plan-panel .task-artifact-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.task-plan-panel .task-artifact-heading p {
+  margin: 4px 0 0;
+  color: #667085;
+  font-size: 13px;
+}
+
+.task-plan-panel .task-artifact-status {
+  border-radius: 999px;
+  padding: 4px 9px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.task-plan-panel .task-artifact-status.status-available { background: var(--green-soft); color: var(--green); }
+.task-plan-panel .task-artifact-status.status-missing { background: var(--red-soft); color: var(--red); }
+
+.task-plan-panel .task-artifact-body {
+  margin-top: 14px;
+}
+
+.task-plan-panel .artifact-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.8fr);
+  gap: 12px;
+}
+
+.task-plan-panel .artifact-section {
+  min-width: 0;
+  border: 1px solid #d8dee8;
+  border-radius: 6px;
+  background: #ffffff;
+  padding: 12px;
+}
+
+.task-plan-panel .artifact-section h4 {
+  margin: 0 0 8px;
+  color: #56326c;
+  font-size: 12px;
+}
+
+.task-plan-panel .artifact-section pre {
+  max-height: 220px;
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.task-plan-panel .evidence-list {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.task-plan-panel .evidence-list li {
+  min-width: 0;
+  border-radius: 6px;
+  background: #f7f3fb;
+  padding: 8px 9px;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.task-plan-panel .artifact-empty {
+  border: 1px dashed #c5b4d7;
+  border-radius: 6px;
+  background: #ffffff;
+  padding: 16px;
+  color: #667085;
+  text-align: center;
+}
+
+.task-plan-panel .artifact-empty strong {
+  display: block;
+  margin-bottom: 5px;
+  color: #344054;
+}
+
+.task-plan-panel .artifact-empty p { margin: 4px 0 0; }
+.task-plan-panel .artifact-missing { border-color: #fecaca; background: var(--red-soft); }
+
+.task-plan-panel .artifact-flow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.task-plan-panel .artifact-flow-block {
+  min-width: 0;
+  border: 1px solid #d8dee8;
+  border-radius: 6px;
+  background: #ffffff;
+  padding: 12px;
+}
+
+.task-plan-panel .artifact-flow-block strong {
+  display: block;
+  margin-bottom: 8px;
+  color: #475569;
+  font-size: 12px;
+}
+
+.task-plan-panel .artifact-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.task-plan-panel .artifact-chip {
+  border-radius: 999px;
+  background: #eee2fa;
+  padding: 5px 8px;
+  color: #56326c;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.task-plan-panel .artifact-none { color: #667085; font-size: 12px; }
+
+@media (max-width: 1050px) {
+  .task-plan-panel .artifact-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 760px) {
+  .task-plan-panel .task-artifact-heading { flex-direction: column; }
+  .task-plan-panel .artifact-flow { grid-template-columns: 1fr; }
+}
+
 /* ===== V0.7 命令步骤样式 ===== */
 
 .event-step.command-step {

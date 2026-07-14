@@ -49,6 +49,11 @@ function applyEvent(event) {
   const rounds = buildRounds(state.events);
   const latestRound = rounds[rounds.length - 1];
   if (["run_completed", "run_failed", "run_interrupted"].includes(event.phase)) {
+    const plan = buildTaskPlan(state.events);
+    if (plan && plan.definitions.length > 0) {
+      state.selectedTaskId = plan.definitions[plan.definitions.length - 1].task_id;
+      state.userSelectedTask = false;
+    }
     state.selectedRoundId = "task-completion";
   } else {
     state.selectedRoundId = latestRound?.id || (event.phase === "run_started" ? "task-entry" : null);
@@ -136,7 +141,29 @@ function buildTaskPlan(events) {
     activeTaskId,
     completedCount: Object.values(statuses).filter((s) => s === "completed").length,
     totalCount: definitions.length,
+    artifacts: buildTaskArtifacts(events),
   };
+}
+
+function buildTaskArtifacts(events) {
+  const artifacts = {};
+  for (const event of events) {
+    if (!["task_artifact_created", "task_artifact_missing"].includes(event.phase)) continue;
+    const artifact = event.output?.artifact;
+    const taskId = event.task_id || artifact?.task_id;
+    if (!taskId || !artifact || typeof artifact !== "object") continue;
+    artifacts[taskId] = {
+      artifact,
+      evidenceObservations: Array.isArray(event.output?.evidence_observations) ? event.output.evidence_observations : [],
+      inheritedTaskIds: Array.isArray(event.output?.inherited_task_ids) ? event.output.inherited_task_ids : [],
+      forwardedTaskIds: Array.isArray(event.output?.forwarded_task_ids) ? event.output.forwarded_task_ids : [],
+    };
+  }
+  return artifacts;
+}
+
+function artifactForTask(plan, taskId) {
+  return plan?.artifacts?.[taskId] || null;
 }
 
 function renderTaskPlan() {
@@ -234,6 +261,122 @@ function renderTaskPlan() {
     label.hidden = true;
     label.textContent = "";
   }
+  renderSelectedTaskArtifact(plan);
+}
+
+function formatArtifactEvidence(item) {
+  return `Observation ${item.index}: ${item.tool_name}`;
+}
+
+function renderArtifactChips(plan, taskIds, emptyText) {
+  const list = document.createElement("div");
+  list.className = "artifact-chip-list";
+  if (!taskIds.length) {
+    const empty = document.createElement("span");
+    empty.className = "artifact-none";
+    empty.textContent = emptyText;
+    list.append(empty);
+    return list;
+  }
+  for (const taskId of taskIds) {
+    const definition = plan.definitions.find((item) => item.task_id === taskId);
+    const chip = document.createElement("span");
+    chip.className = "artifact-chip";
+    chip.textContent = definition ? `${definition.task_id} · ${definition.title}` : taskId;
+    list.append(chip);
+  }
+  return list;
+}
+
+function renderSelectedTaskArtifact(plan) {
+  const title = document.querySelector("#task-artifact-title");
+  const status = document.querySelector("#task-artifact-status");
+  const body = document.querySelector("#task-artifact-body");
+  body.replaceChildren();
+  const def = plan.definitions.find((item) => item.task_id === state.selectedTaskId);
+  if (!def) {
+    title.textContent = "所选任务产物";
+    status.textContent = "waiting";
+    return;
+  }
+  const record = artifactForTask(plan, def.task_id);
+  const artifact = record?.artifact;
+  title.textContent = `${def.title}的任务产物`;
+  status.textContent = artifact?.status || "waiting";
+  status.className = `task-artifact-status status-${artifact?.status || "waiting"}`;
+
+  if (!artifact) {
+    const empty = document.createElement("div");
+    empty.className = "artifact-empty";
+    const heading = document.createElement("strong");
+    heading.textContent = "本任务尚未产生产物";
+    const detail = document.createElement("p");
+    detail.textContent = "任务完成后，这里会展示可继承的正式产物。";
+    empty.append(heading, detail);
+    body.append(empty);
+    return;
+  }
+  if (artifact.status === "missing") {
+    const empty = document.createElement("div");
+    empty.className = "artifact-empty artifact-missing";
+    const heading = document.createElement("strong");
+    heading.textContent = "本任务没有产物";
+    const reason = document.createElement("p");
+    reason.textContent = artifact.missing_reason || "没有可校验的成功 Observation。";
+    const inherited = document.createElement("p");
+    inherited.textContent = record.inheritedTaskIds.length
+      ? `进入失败任务前已注入：${record.inheritedTaskIds.join("、")}`
+      : "该任务未继承前序产物。";
+    empty.append(heading, reason, inherited);
+    body.append(empty);
+  } else {
+    const grid = document.createElement("div");
+    grid.className = "artifact-grid";
+
+    const contentSection = document.createElement("section");
+    contentSection.className = "artifact-section artifact-content";
+    const contentHeading = document.createElement("h4");
+    contentHeading.textContent = "主产物内容";
+    const content = document.createElement("pre");
+    content.id = "artifact-content";
+    content.textContent = artifact.content;
+    contentSection.append(contentHeading, content);
+
+    const evidenceSection = document.createElement("section");
+    evidenceSection.className = "artifact-section artifact-evidence";
+    const evidenceHeading = document.createElement("h4");
+    evidenceHeading.textContent = "当前任务 Observation 来源";
+    const evidenceList = document.createElement("ul");
+    evidenceList.id = "artifact-evidence";
+    evidenceList.className = "evidence-list";
+    if (!record.evidenceObservations.length) {
+      const item = document.createElement("li");
+      item.textContent = "没有可校验的当前任务 Observation。";
+      evidenceList.append(item);
+    } else {
+      for (const evidence of record.evidenceObservations) {
+        const item = document.createElement("li");
+        item.textContent = formatArtifactEvidence(evidence);
+        evidenceList.append(item);
+      }
+    }
+    evidenceSection.append(evidenceHeading, evidenceList);
+    grid.append(contentSection, evidenceSection);
+    body.append(grid);
+  }
+  const flow = document.createElement("div");
+  flow.className = "artifact-flow";
+  const appendFlowBlock = (label, taskIds, emptyText) => {
+    const block = document.createElement("section");
+    block.className = "artifact-flow-block";
+    const heading = document.createElement("strong");
+    heading.textContent = label;
+    block.append(heading, renderArtifactChips(plan, taskIds, emptyText));
+    flow.append(block);
+  };
+  appendFlowBlock("本任务继承的前序产物", record.inheritedTaskIds, "这是首个任务，没有前序产物。");
+  appendFlowBlock("本产物的后续流向", record.forwardedTaskIds, "这是最终任务，没有后续流向。");
+  body.append(flow);
 }
 
 function selectTask(taskId) {
@@ -249,10 +392,20 @@ function roundsForSelectedTask(rounds) {
   if (!plan) return rounds;
 
   return rounds.filter((round) => {
-    if (round.id === "plan-generation") return state.selectedTaskId === plan.definitions[0]?.task_id;
     const taskId = taskIdForRound(round);
     return taskId === state.selectedTaskId;
+  }).map((round) => {
+    const events = round.events.filter(
+      (event) => !event.task_id || event.task_id === state.selectedTaskId,
+    );
+    return enrichRound({ ...round, events });
   });
+}
+
+function shouldShowTerminalEvent(plan) {
+  if (!plan) return true;
+  const lastTask = plan.definitions[plan.definitions.length - 1];
+  return Boolean(lastTask && state.selectedTaskId === lastTask.task_id);
 }
 
 function taskIdForRound(round) {
@@ -352,12 +505,25 @@ function enrichRound(round) {
 }
 
 function selectedRound() {
-  const rounds = buildRounds(state.events);
+  let rounds = buildRounds(state.events);
+  const plan = buildTaskPlan(state.events);
+  if (plan && state.selectedTaskId) {
+    rounds = roundsForSelectedTask(rounds);
+  }
   return rounds.find((round) => round.id === state.selectedRoundId) || rounds[rounds.length - 1] || null;
 }
 
 function runStartedEvent() {
   return state.events.find((event) => event.phase === "run_started") || null;
+}
+
+function taskEntryEvent(plan) {
+  if (plan && state.selectedTaskId) {
+    return state.events.find(
+      (event) => event.phase === "task_started" && event.task_id === state.selectedTaskId,
+    ) || null;
+  }
+  return runStartedEvent();
 }
 
 function terminalEvent() {
@@ -372,6 +538,8 @@ function moduleForPhase(phase) {
     "task_completed": "Task Plan",
     "task_failed": "Task Plan",
     "task_skipped": "Task Plan",
+    "task_artifact_created": "Task Artifact",
+    "task_artifact_missing": "Task Artifact",
     "context_built": "Context",
     "llm_decision": "Model / Reasoning",
     "tool_started": "Tools",
@@ -419,8 +587,8 @@ function renderRoundList() {
     rounds = roundsForSelectedTask(rounds);
   }
 
-  const entry = runStartedEvent();
-  const completion = terminalEvent();
+  const entry = taskEntryEvent(plan);
+  const completion = shouldShowTerminalEvent(plan) ? terminalEvent() : null;
   roundList.replaceChildren();
 
   if (!entry && rounds.length === 0 && !completion) {
@@ -488,12 +656,15 @@ function renderRoundList() {
   }
 
   if (completion) {
-    const completionDisplayIndex = rounds.length + 1;
+    const completionDisplayIndex = rounds.length
+      ? rounds[rounds.length - 1].index + 1
+      : 1;
     renderTaskCompletionItem(roundList, completion, completionDisplayIndex);
   }
 }
 
 function renderTaskEntryItem(roundList, event) {
+  const isPlannedTaskEntry = event.phase === "task_started";
   const item = document.createElement("li");
   item.className = "task-entry";
   if (state.selectedRoundId === "task-entry") {
@@ -515,7 +686,7 @@ function renderTaskEntryItem(roundList, event) {
 
   const title = document.createElement("span");
   title.className = "round-title";
-  title.textContent = "任务入口";
+  title.textContent = isPlannedTaskEntry ? "任务开始" : "任务入口";
 
   const statusDot = document.createElement("span");
   statusDot.className = `round-status-dot status-${event.status}`;
@@ -534,7 +705,7 @@ function renderTaskEntryItem(roundList, event) {
 
   const badge = document.createElement("span");
   badge.className = "agent-module-badge";
-  badge.textContent = "Run Start";
+  badge.textContent = isPlannedTaskEntry ? "Task Plan" : "Run Start";
 
   button.append(roundIndex, content, stepCount, badge);
   button.addEventListener("click", () => {
@@ -568,7 +739,7 @@ function renderTaskCompletionItem(roundList, event, displayIndex) {
 
   const title = document.createElement("span");
   title.className = "round-title";
-  title.textContent = event.phase === "run_completed" ? "任务完成" : "任务结束";
+  title.textContent = event.phase === "run_completed" ? "整次运行完成" : "整次运行结束";
 
   const statusDot = document.createElement("span");
   statusDot.className = `round-status-dot status-${event.status}`;
@@ -610,8 +781,11 @@ function renderRoundDetail() {
   }
 
   if (state.selectedRoundId === "task-completion") {
-    renderTaskCompletionDetail(detail);
-    return;
+    const plan = buildTaskPlan(state.events);
+    if (shouldShowTerminalEvent(plan)) {
+      renderTaskCompletionDetail(detail);
+      return;
+    }
   }
 
   if (!round) {
@@ -648,17 +822,18 @@ function renderRoundDetail() {
 }
 
 function renderTaskEntryDetail(detail) {
-  const event = runStartedEvent();
+  const event = taskEntryEvent(buildTaskPlan(state.events));
   if (!event) {
     detail.textContent = "暂无任务入口事件。";
     return;
   }
+  const isPlannedTaskEntry = event.phase === "task_started";
 
   const heading = document.createElement("div");
   heading.className = "detail-heading";
 
   const title = document.createElement("h3");
-  title.textContent = "任务入口";
+  title.textContent = isPlannedTaskEntry ? "任务开始" : "任务入口";
 
   const meta = document.createElement("p");
   meta.className = "detail-meta";
@@ -685,7 +860,7 @@ function renderTaskCompletionDetail(detail) {
   heading.className = "detail-heading";
 
   const title = document.createElement("h3");
-  title.textContent = event.phase === "run_completed" ? "任务完成" : "任务结束";
+  title.textContent = event.phase === "run_completed" ? "整次运行完成" : "整次运行结束";
 
   const meta = document.createElement("p");
   meta.className = "detail-meta";
@@ -725,6 +900,9 @@ function renderFlowOverview(container, events) {
 function buildFlowItems(events) {
   if (events.some((event) => event.phase === "run_started")) {
     return ["Goal", "CLI", "Run Started"];
+  }
+  if (events.some((event) => event.phase === "task_started")) {
+    return ["Task Plan", "Task Started"];
   }
   if (events.some((event) => event.phase === "run_completed")) {
     return ["Final Answer", "Run Completed"];

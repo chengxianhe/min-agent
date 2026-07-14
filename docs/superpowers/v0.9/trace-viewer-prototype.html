@@ -1,0 +1,602 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Min Agent Trace Viewer · V0.9 Prototype</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #172033;
+        --muted: #64748b;
+        --line: #dce3ec;
+        --panel: #ffffff;
+        --canvas: #f3f6fa;
+        --blue: #2563eb;
+        --blue-soft: #eaf2ff;
+        --green: #15803d;
+        --green-soft: #edf9f0;
+        --red: #c81e1e;
+        --red-soft: #fff0f0;
+        --amber: #a16207;
+        --amber-soft: #fff8e6;
+        --purple: #7e22ce;
+        --purple-soft: #f6edff;
+        --shadow: 0 16px 40px rgba(22, 34, 52, 0.08);
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background:
+          radial-gradient(circle at top right, rgba(37,99,235,.08), transparent 26rem),
+          var(--canvas);
+        color: var(--ink);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      button { font: inherit; }
+      code, pre { font-family: "SFMono-Regular", Consolas, monospace; }
+      .shell { width: min(1440px, calc(100% - 40px)); margin: 28px auto 64px; }
+
+      .prototype-toolbar {
+        display: flex; align-items: center; justify-content: space-between; gap: 20px;
+        padding: 12px 16px; margin-bottom: 14px; border: 1px dashed #a7b4c7;
+        border-radius: 12px; background: rgba(255,255,255,.82); backdrop-filter: blur(10px);
+      }
+      .prototype-toolbar strong { font-size: 13px; }
+      .prototype-toolbar span { color: var(--muted); font-size: 12px; }
+      .prototype-switcher { display: flex; flex-wrap: wrap; gap: 8px; }
+      .prototype-switcher button {
+        border: 1px solid #cbd5e1; border-radius: 999px; padding: 7px 12px;
+        color: #475569; background: #fff; cursor: pointer;
+      }
+      .prototype-switcher button.active { color: #fff; background: var(--ink); border-color: var(--ink); }
+
+      .status {
+        display: flex; justify-content: space-between; align-items: center; gap: 20px;
+        padding: 26px 28px; border-radius: 18px 18px 0 0; color: #fff;
+        background: linear-gradient(135deg, #172033 0%, #253a62 100%); box-shadow: var(--shadow);
+      }
+      .eyebrow { margin: 0 0 7px; color: #b8c8e7; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; }
+      h1 { margin: 0; font-size: clamp(24px, 3vw, 38px); line-height: 1.15; }
+      .badge { padding: 8px 13px; border-radius: 999px; font-size: 12px; font-weight: 800; text-transform: uppercase; }
+      .badge.completed { color: #bdf5cb; background: rgba(21,128,61,.25); border: 1px solid rgba(189,245,203,.4); }
+      .badge.failed { color: #fecaca; background: rgba(200,30,30,.25); border: 1px solid rgba(254,202,202,.4); }
+
+      .summary-panel, .context-panel, .task-plan-panel, .layout {
+        border: 1px solid var(--line); background: var(--panel); box-shadow: var(--shadow);
+      }
+      .summary-panel { border-top: 0; padding: 18px 22px; }
+      .run-summary-grid { display: grid; grid-template-columns: repeat(6, minmax(0,1fr)); gap: 10px; }
+      .summary-item { padding: 13px 14px; border-radius: 10px; background: #f7f9fc; border: 1px solid #e5eaf1; }
+      .summary-value { display: block; font-size: 22px; font-weight: 850; }
+      .summary-label { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; text-transform: uppercase; }
+
+      .context-panel { margin-top: 14px; padding: 18px 22px; border-radius: 12px; }
+      .context-panel h2, .panel-heading h2 { margin: 0 0 7px; font-size: 15px; }
+      .context-panel p { margin: 0; line-height: 1.7; color: #405069; white-space: pre-line; }
+      .result.success { border-left: 4px solid var(--green); background: #fbfffc; }
+      .result.failure { border-left: 4px solid var(--red); background: #fffafa; }
+
+      .task-plan-panel { margin-top: 14px; padding: 20px; border-radius: 14px; }
+      .task-plan-panel[hidden] { display: none; }
+      .task-plan-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+      .task-plan-heading h2 { margin: 0 0 5px; font-size: 16px; }
+      .task-plan-heading p { margin: 0; color: var(--muted); font-size: 11px; }
+      .task-progress { min-width: 190px; text-align: right; }
+      .task-progress strong { font-size: 12px; }
+      .progress-track { height: 7px; margin-top: 7px; border-radius: 99px; overflow: hidden; background: #e7ecf3; }
+      .progress-value { height: 100%; width: 0; background: var(--green); transition: width .2s ease; }
+      .task-list { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; margin: 16px 0 0; padding: 0; list-style: none; }
+      .task-card { height: 100%; width: 100%; padding: 14px; text-align: left; border: 1px solid #dce3ed; border-radius: 11px; background: #fff; cursor: pointer; }
+      .task-card:hover { border-color: #9db6dc; }
+      .task-card.selected { outline: 3px solid rgba(37,99,235,.17); border-color: var(--blue); }
+      .task-card.completed { border-left: 4px solid var(--green); }
+      .task-card.running { border-left: 4px solid var(--blue); background: var(--blue-soft); }
+      .task-card.failed { border-left: 4px solid var(--red); background: var(--red-soft); }
+      .task-card.skipped { border-left: 4px solid #94a3b8; background: #f5f7fa; color: #64748b; }
+      .task-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+      .task-index { color: var(--muted); font-size: 9px; font-weight: 850; text-transform: uppercase; }
+      .task-status { padding: 3px 7px; border-radius: 99px; background: #edf1f5; font-size: 9px; font-weight: 800; text-transform: uppercase; }
+      .task-card h3 { margin: 0 0 7px; font-size: 14px; }
+      .task-card p { margin: 0; color: #607087; font-size: 11px; line-height: 1.5; }
+      .task-error { display: block; margin-top: 8px; color: var(--red); font-size: 10px; font-weight: 700; }
+
+      .task-artifact-panel {
+        margin-top: 16px; padding: 17px; border: 1px solid #d9c5f0; border-radius: 12px;
+        background: linear-gradient(135deg, #fdfbff 0%, var(--purple-soft) 100%);
+      }
+      .artifact-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+      .artifact-heading h3 { margin: 0 0 4px; font-size: 14px; }
+      .artifact-heading p { margin: 0; color: #66547a; font-size: 10px; }
+      .artifact-status { padding: 4px 8px; border-radius: 999px; color: var(--purple); background: #fff; border: 1px solid #dbc8f0; font-size: 9px; font-weight: 850; text-transform: uppercase; }
+      .artifact-status.missing { color: #64748b; border-color: #cbd5e1; }
+      .artifact-grid { display: grid; grid-template-columns: minmax(0,1.4fr) minmax(280px,.8fr); gap: 12px; }
+      .artifact-section { min-width: 0; padding: 12px; border: 1px solid rgba(126,34,206,.16); border-radius: 9px; background: rgba(255,255,255,.82); }
+      .artifact-section h4 { margin: 0 0 8px; color: #5b2779; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
+      .artifact-section pre { min-height: 88px; max-height: 190px; margin: 0; overflow: auto; white-space: pre-wrap; color: #2b2631; font-size: 11px; line-height: 1.6; }
+      .evidence-list { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+      .evidence-list li { padding: 8px 9px; border-radius: 7px; color: #3f4b5e; background: #f7f3fb; font-size: 10px; line-height: 1.45; }
+      .artifact-flow { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+      .artifact-flow-block { padding: 10px 12px; border: 1px solid rgba(126,34,206,.14); border-radius: 9px; background: rgba(255,255,255,.72); }
+      .artifact-flow-block strong { display: block; margin-bottom: 7px; color: #5b2779; font-size: 10px; }
+      .artifact-chip-list { display: flex; flex-wrap: wrap; gap: 6px; }
+      .artifact-chip { padding: 5px 8px; border-radius: 999px; color: #56326c; background: #eee2fa; font-size: 9px; font-weight: 700; }
+      .artifact-none { color: var(--muted); font-size: 10px; }
+      .artifact-empty { padding: 20px; text-align: center; border: 1px dashed #c5b4d7; border-radius: 9px; color: #6b5c78; background: rgba(255,255,255,.62); }
+      .artifact-empty strong { display: block; margin-bottom: 5px; font-size: 12px; }
+      .artifact-empty p { margin: 0; font-size: 10px; line-height: 1.55; }
+
+      .layout { display: grid; grid-template-columns: minmax(250px, .34fr) minmax(0,1fr); margin-top: 14px; border-radius: 14px; overflow: hidden; }
+      .rounds-panel { border-right: 1px solid var(--line); background: #fbfcfe; }
+      .panel-heading { padding: 18px 20px; border-bottom: 1px solid var(--line); background: #fff; }
+      .panel-heading p { margin: 0; color: var(--muted); font-size: 10px; }
+      .selected-task-label { margin-top: 9px; padding: 8px 10px; border-radius: 8px; color: #1d4ed8; background: var(--blue-soft); font-size: 11px; font-weight: 750; }
+      .round-list { margin: 0; padding: 10px; list-style: none; }
+      .round-list li + li { margin-top: 7px; }
+      .round-list button { display: grid; grid-template-columns: 30px 1fr auto; align-items: center; gap: 9px; width: 100%; padding: 11px; text-align: left; border: 1px solid transparent; border-radius: 9px; background: transparent; cursor: pointer; }
+      .round-list button:hover { background: #f1f5f9; }
+      .round-list li.active button { border-color: #a9c4ec; background: #eaf2ff; }
+      .round-index { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: #e8edf4; font-size: 11px; font-weight: 850; }
+      .round-title { display: block; font-size: 12px; font-weight: 800; }
+      .round-content small { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; }
+      .round-step-count { color: var(--muted); font-size: 9px; white-space: nowrap; }
+      .detail { min-width: 0; background: #f8fafc; }
+      .round-detail { padding: 18px; }
+      .flow-overview { padding: 14px; margin-bottom: 12px; border: 1px solid #dce3ed; border-radius: 10px; background: #fff; }
+      .flow-overview h3 { margin: 0 0 9px; font-size: 11px; }
+      .flow-nodes { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+      .flow-node { padding: 6px 9px; border-radius: 999px; color: #334155; background: #edf2f7; font-size: 10px; }
+      .flow-arrow { color: #94a3b8; font-size: 10px; }
+      .event-step { padding: 15px; margin-bottom: 12px; border: 1px solid #dce3ed; border-radius: 10px; background: #fff; }
+      .event-step.permission-step { border-left: 3px solid var(--amber); background: #fffdf7; }
+      .event-step.command-step { border-left: 3px solid var(--purple); }
+      .event-step.artifact-step { border-left: 3px solid var(--purple); background: #fdfaff; }
+      .event-step.failure-step { border-left: 3px solid var(--red); background: #fffafa; }
+      .event-step-header { display: flex; gap: 10px; align-items: flex-start; }
+      .event-step-number { display: grid; flex: 0 0 auto; place-items: center; width: 28px; height: 28px; border-radius: 8px; color: #fff; background: var(--ink); font-size: 11px; font-weight: 850; }
+      .event-step h3 { margin: 0 0 4px; font-size: 12px; }
+      .detail-meta { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+      .step-io-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; margin-top: 12px; }
+      .detail-section { min-width: 0; padding: 11px; border-radius: 8px; background: #f5f7fa; }
+      .detail-section h4 { margin: 0 0 6px; color: var(--muted); font-size: 9px; text-transform: uppercase; }
+      .detail-section pre { max-height: 210px; margin: 0; overflow: auto; white-space: pre-wrap; font-size: 10px; line-height: 1.55; }
+
+      .context-build-intro { display: flex; justify-content: space-between; gap: 15px; margin-top: 13px; padding: 11px; border-radius: 8px; background: #eef4ff; }
+      .context-build-intro strong { font-size: 11px; }
+      .context-build-intro span { color: #52657f; font-size: 10px; }
+      .context-scope-note { margin-top: 8px; padding: 8px 10px; border-left: 3px solid var(--purple); color: #5d4b6c; background: var(--purple-soft); font-size: 9px; line-height: 1.5; }
+      .context-group-title { margin: 12px 0 0; color: #52657f; font-size: 9px; font-weight: 800; text-transform: uppercase; }
+      .context-source-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; margin-top: 8px; }
+      .context-source-card { min-width: 0; padding: 10px; border: 1px solid #dce3ed; border-radius: 8px; background: #fff; }
+      .context-source-card.artifacts { border-color: #d9c5f0; background: #fdfaff; }
+      .context-source-card strong { display: block; margin-bottom: 4px; font-size: 10px; }
+      .context-source-card span { display: block; color: var(--muted); font-size: 9px; line-height: 1.45; white-space: pre-line; }
+      .empty-state { padding: 54px 24px; text-align: center; color: var(--muted); }
+      .prototype-note { margin-top: 14px; padding: 12px 15px; border: 1px dashed #b5c0d0; border-radius: 10px; color: #56657b; background: #fff; font-size: 11px; line-height: 1.55; }
+
+      @media (max-width: 1050px) {
+        .run-summary-grid { grid-template-columns: repeat(3,1fr); }
+        .task-list { grid-template-columns: repeat(2,1fr); }
+        .artifact-grid { grid-template-columns: 1fr; }
+      }
+      @media (max-width: 760px) {
+        .shell { width: min(100% - 20px, 1440px); margin-top: 10px; }
+        .prototype-toolbar, .status, .task-plan-heading, .artifact-heading { align-items: flex-start; flex-direction: column; }
+        .run-summary-grid { grid-template-columns: repeat(2,1fr); }
+        .task-list, .artifact-flow { grid-template-columns: 1fr; }
+        .task-progress { width: 100%; text-align: left; }
+        .layout { grid-template-columns: 1fr; }
+        .rounds-panel { border-right: 0; border-bottom: 1px solid var(--line); }
+        .step-io-grid, .context-source-grid { grid-template-columns: 1fr; }
+        .flow-nodes { flex-direction: column; align-items: flex-start; }
+        .flow-arrow { transform: rotate(90deg); }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="prototype-toolbar" aria-label="原型状态切换">
+        <div><strong>V0.9 静态产品原型</strong><br><span>页面中的事件、产物和时间均为评审数据，不是真实运行记录。</span></div>
+        <div class="prototype-switcher">
+          <button class="active" type="button" data-mode="success">复合任务 · 成功</button>
+          <button type="button" data-mode="failure">复合任务 · 失败</button>
+          <button type="button" data-mode="simple">简单任务 · V0.8</button>
+        </div>
+      </section>
+
+      <header class="status">
+        <div><p class="eyebrow">Min Agent Trace Viewer / V0.9 Prototype</p><h1 id="run-title"></h1></div>
+        <span id="run-badge" class="badge"></span>
+      </header>
+
+      <section class="summary-panel" aria-label="Run summary">
+        <div id="summary-grid" class="run-summary-grid"></div>
+      </section>
+
+      <section class="context-panel original-request">
+        <h2>原始需求</h2><p id="original-request"></p>
+      </section>
+
+      <section id="result-panel" class="context-panel result">
+        <h2>最终结果</h2><p id="final-result"></p>
+      </section>
+
+      <section id="task-plan-panel" class="task-plan-panel" aria-label="任务计划">
+        <div class="task-plan-heading">
+          <div><h2>任务计划</h2><p>固定顺序执行；点击任务同时查看主产物和该任务内部 Agentic Loop。</p></div>
+          <div class="task-progress"><strong id="task-progress-text"></strong><div class="progress-track"><div id="task-progress-value" class="progress-value"></div></div></div>
+        </div>
+        <ol id="task-list" class="task-list"></ol>
+
+        <section id="task-artifact-panel" class="task-artifact-panel" aria-label="所选任务产物">
+          <div class="artifact-heading">
+            <div><h3 id="artifact-title">所选任务产物</h3><p id="artifact-subtitle">完成任务后，由运行时校验来源并固化。</p></div>
+            <span id="artifact-status" class="artifact-status">available</span>
+          </div>
+          <div id="artifact-body">
+            <div class="artifact-grid">
+              <section class="artifact-section"><h4>主产物内容</h4><pre id="artifact-content"></pre></section>
+              <section class="artifact-section"><h4>当前任务 Observation 来源</h4><ul id="artifact-evidence" class="evidence-list"></ul></section>
+            </div>
+            <div class="artifact-flow">
+              <section class="artifact-flow-block"><strong>本任务继承的前序产物</strong><div id="artifact-inherited" class="artifact-chip-list"></div></section>
+              <section class="artifact-flow-block"><strong>本产物的后续流向</strong><div id="artifact-forwarded" class="artifact-chip-list"></div></section>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <section class="layout" aria-label="Agentic loop trace">
+        <nav class="rounds-panel" aria-label="执行轮次">
+          <div class="panel-heading"><h2>执行轮次</h2><p>按 Agentic Loop 分组</p><div id="selected-task-label" class="selected-task-label"></div></div>
+          <ol id="round-list" class="round-list"></ol>
+        </nav>
+        <aside class="detail">
+          <div class="panel-heading"><h2>轮次详情</h2><p>查看本轮上下文、模型决策、工具结果和任务产物</p></div>
+          <div id="round-detail" class="round-detail"></div>
+        </aside>
+      </section>
+
+      <p class="prototype-note">原型边界：V0.9 仍然从 CLI 发起任务并在 CLI 处理权限；Trace Viewer 保持只读。本页只演示每个任务的主产物如何由当前任务 Observation 支撑、如何进入后续任务上下文，以及失败时为什么不会生成产物。</p>
+    </main>
+
+    <script>
+      function contextStep(taskId, observations, selectedContent, inheritedArtifacts, planned = true) {
+        return {
+          title: "Context Build",
+          meta: planned
+            ? (taskId
+              ? `${taskId} 判断下一步前，只组装当前任务动态上下文和已完成任务产物。`
+              : "所有任务均已完成，最终回答前只组装已固化的任务产物。")
+            : "模型判断下一步前，组装运行级基础上下文与逐轮动态上下文。",
+          type: "context",
+          input: "5 类基础上下文：用户目标、minagent.md、运行摘要、运行元信息、工具目录",
+          output: planned
+            ? "3 类动态上下文：Working Observations、Selected Project Content、Inherited Task Artifacts"
+            : "2 类动态上下文：Working Observations、Selected Project Content",
+          context: {taskId, observations, selectedContent, inheritedArtifacts, planned}
+        };
+      }
+
+      function artifact(title, content, evidence, inherited = [], forwarded = []) {
+        return {title, content, evidence, inherited, forwarded};
+      }
+      function task(id, title, criteria, status, rounds, taskArtifact = null, error = "", inherited = []) {
+        return {id, title, criteria, status, rounds, artifact: taskArtifact, error, inherited};
+      }
+      function round(id, title, summary, steps) { return {id, title, summary, steps}; }
+      function step(title, meta, input, output, type = "") { return {title, meta, input, output, type}; }
+
+      const modes = {
+        success: {
+          title: "已通过任务产物生成带时间的项目摘要",
+          status: "completed",
+          request: "阅读 workspace 中的项目资料，获取当前时间，并生成一份带时间的 summary.md。",
+          result: "已读取项目资料，获取本地时间 2026-07-10 16:45:21 CST，并在用户批准后创建 summary.md。任务 4 通过正式 Task Artifacts 使用了前序资料摘要和真实时间，4 个任务全部完成。",
+          stats: [["12","Agentic Loop 轮次"],["10","模型决策"],["6","工具调用"],["10","上下文构建"],["2","权限确认"],["4 / 4","任务完成"]],
+          tasks: [
+            task("task-1", "查看项目文件", "确认 workspace 中可用的 Markdown 文件。", "completed", [
+              round("1", "Context → Model → list_dir", "发现项目资料", [
+                contextStep("task-1", [], [], []),
+                step("Model Decision", "选择 list_dir 查看 workspace。", "tool_call: list_dir", '{"path":"."}'),
+                step("Tool Execution", "列出 workspace 根目录。", "path: .", "project.md\narchitecture.md\nusage.md"),
+                step("Observation Added", "目录结果只进入 task-1 的 Working Observations。", "list_dir", "Observation 1 · success")
+              ]),
+              round("2", "Context → complete_task → Artifact", "形成文件清单产物", [
+                contextStep("task-1", ["Observation 1 · list_dir · success"], [], []),
+                step("Model Decision", "模型提交主产物文本和当前任务 Observation 索引。", "complete_task: task-1", '{"task_output":"project.md, architecture.md, usage.md","evidence_observation_indexes":[1]}'),
+                step("Task Artifact Created", "运行时校验 Observation 1 成功后，原子完成任务并固化产物。", "task-1 · Observation 1", "Workspace Markdown 文件清单", "artifact")
+              ])
+            ], artifact(
+              "Workspace Markdown 文件清单",
+              "project.md\narchitecture.md\nusage.md",
+              ["Observation 1 · list_dir(path=.) · success"],
+              [],
+              ["task-2", "task-3", "task-4"]
+            )),
+
+            task("task-2", "读取并整理资料", "读取相关 Markdown 文件并形成摘要所需内容。", "completed", [
+              round("3", "Artifacts → read_file(project.md)", "继承文件清单并读取项目说明", [
+                contextStep("task-2", [], [], ["task-1 · Workspace Markdown 文件清单"]),
+                step("Model Decision", "根据前序文件清单选择 project.md。", "Inherited Task Artifact: task-1", '{"kind":"tool_call","tool_name":"read_file","args":{"path":"project.md"}}'),
+                step("Tool Execution", "读取项目说明。", "project.md", "# min-agent-demo\n可观察的最小 Agent demo"),
+                step("Observation Added", "文件内容只进入 task-2 的 Working Observations。", "read_file", "Observation 1 · success")
+              ]),
+              round("4", "Context → read_file(architecture.md)", "继续读取架构说明", [
+                contextStep("task-2", ["Observation 1 · read_file(project.md) · success"], ["project.md"], ["task-1 · Workspace Markdown 文件清单"]),
+                step("Model Decision", "当前任务还需要架构资料。", "Working Observation 1", '{"kind":"tool_call","tool_name":"read_file","args":{"path":"architecture.md"}}'),
+                step("Tool Execution", "读取架构说明。", "architecture.md", "AgentLoop → ToolRegistry → Observation → Trace Viewer"),
+                step("Observation Added", "第二份文件内容进入 task-2 上下文。", "read_file", "Observation 2 · success")
+              ]),
+              round("5", "Context → complete_task → Artifact", "形成项目资料摘要", [
+                contextStep("task-2", ["Observation 1 · read_file(project.md) · success", "Observation 2 · read_file(architecture.md) · success"], ["project.md", "architecture.md"], ["task-1 · Workspace Markdown 文件清单"]),
+                step("Model Decision", "模型基于 task-2 的两个真实 Observation 生成摘要产物。", "complete_task: task-2", '{"task_output":"min-agent-demo 由 AgentLoop、ToolRegistry、Observation 和 Trace Viewer 构成...","evidence_observation_indexes":[1,2]}'),
+                step("Task Artifact Created", "运行时确认两个引用均属于当前任务且成功。", "task-2 · Observations 1, 2", "项目资料摘要", "artifact")
+              ])
+            ], artifact(
+              "项目资料摘要",
+              "min-agent-demo 是一个可观察的最小 Agent 机制演示。AgentLoop 负责循环决策，所有工具通过 ToolRegistry 执行，真实结果形成 Observation，Trace Viewer 只读展示运行事件。",
+              ["Observation 1 · read_file(project.md) · success", "Observation 2 · read_file(architecture.md) · success"],
+              ["task-1"],
+              ["task-3", "task-4"]
+            )),
+
+            task("task-3", "获取当前时间", "通过预定义命令获得真实本地时间。", "completed", [
+              round("6", "Artifacts → Model → Permission", "继承两份产物并提出受控命令", [
+                contextStep("task-3", [], [], ["task-1 · Workspace Markdown 文件清单", "task-2 · 项目资料摘要"]),
+                step("Model Decision", "当前时间必须通过受控本地命令获取。", "tool_call: run_command", '{"command_id":"get_current_time"}'),
+                step("Permission Requested", "CLI 展示动作、真实命令、workspace 和风险。", "/bin/date \"+%Y-%m-%d %H:%M:%S %Z\"", "waiting for user", "permission")
+              ]),
+              round("7", "Permission → Command → Observation", "执行并吸收真实时间", [
+                step("Permission Resolved", "用户在 CLI 输入 y。", "run_command", "approved=true", "permission"),
+                step("Tool Execution", "使用固定 argv、固定 workspace、shell=False 执行。", "get_current_time", "2026-07-10 16:45:21 CST", "command"),
+                step("Observation Added", "时间结果只进入 task-3 的 Working Observations。", "run_command", "Observation 1 · success")
+              ]),
+              round("8", "Context → complete_task → Artifact", "形成真实时间产物", [
+                contextStep("task-3", ["Observation 1 · run_command(get_current_time) · success"], [], ["task-1 · Workspace Markdown 文件清单", "task-2 · 项目资料摘要"]),
+                step("Model Decision", "模型复制真实命令结果作为本任务主产物。", "complete_task: task-3", '{"task_output":"2026-07-10 16:45:21 CST","evidence_observation_indexes":[1]}'),
+                step("Task Artifact Created", "运行时确认时间来自当前任务成功 Observation。", "task-3 · Observation 1", "当前本地时间", "artifact")
+              ])
+            ], artifact(
+              "当前本地时间",
+              "2026-07-10 16:45:21 CST",
+              ["Observation 1 · run_command(get_current_time) · success"],
+              ["task-1", "task-2"],
+              ["task-4"]
+            )),
+
+            task("task-4", "生成并写入摘要", "创建包含项目摘要和当前时间的 summary.md。", "completed", [
+              round("9", "Artifacts → Model → Permission", "使用前序产物生成写入内容", [
+                contextStep("task-4", [], [], ["task-1 · Workspace Markdown 文件清单", "task-2 · 项目资料摘要", "task-3 · 当前本地时间"]),
+                step("Model Decision", "模型从 Task Artifacts 读取项目摘要和真实时间，生成写入内容。", "Inherited Artifacts: task-1, task-2, task-3", '{"kind":"tool_call","tool_name":"write_file","args":{"path":"summary.md","mode":"create","content":"# Summary..."}}'),
+                step("Permission Requested", "CLI 展示路径、原因和完整内容预览。", "summary.md", "waiting for user", "permission")
+              ]),
+              round("10", "Permission → Write → Observation", "批准并创建文件", [
+                step("Permission Resolved", "用户批准本次写入。", "write_file", "approved=true", "permission"),
+                step("Tool Execution", "在 workspace 内创建新文件。", "summary.md", "wrote file: summary.md", "command"),
+                step("Observation Added", "写入结果只进入 task-4 的 Working Observations。", "write_file", "Observation 1 · success")
+              ]),
+              round("11", "Context → complete_task → Artifact", "形成文件写入结果产物", [
+                contextStep("task-4", ["Observation 1 · write_file(summary.md) · success"], [], ["task-1 · Workspace Markdown 文件清单", "task-2 · 项目资料摘要", "task-3 · 当前本地时间"]),
+                step("Model Decision", "模型提交写入结果产物并引用当前任务 Observation。", "complete_task: task-4", '{"task_output":"summary.md 已创建，包含项目摘要和 2026-07-10 16:45:21 CST","evidence_observation_indexes":[1]}'),
+                step("Task Artifact Created", "运行时校验写入成功后，完成最后一个任务。", "task-4 · Observation 1", "摘要文件写入结果", "artifact")
+              ]),
+              round("12", "All Artifacts → Final Answer", "汇总全部任务结果", [
+                contextStep("", [], [], ["task-1 · Workspace Markdown 文件清单", "task-2 · 项目资料摘要", "task-3 · 当前本地时间", "task-4 · 摘要文件写入结果"]),
+                step("Model Decision", "4 个任务已完成，最终回答引用固化后的任务产物。", "final_answer", "success=true"),
+                step("Final Answer", "向用户说明成果和文件路径。", "4 / 4 tasks completed", "summary.md created")
+              ])
+            ], artifact(
+              "摘要文件写入结果",
+              "summary.md 已创建。文件包含项目资料摘要和生成时间 2026-07-10 16:45:21 CST。",
+              ["Observation 1 · write_file(summary.md, mode=create) · success"],
+              ["task-1", "task-2", "task-3"],
+              []
+            ))
+          ]
+        },
+
+        failure: {
+          title: "获取时间失败，后续任务未执行",
+          status: "failed",
+          request: "阅读 workspace 中的项目资料，获取当前时间，并生成一份带时间的 summary.md。",
+          result: "任务 1、2 已完成并保留各自主产物；任务 3 因用户拒绝 run_command 权限而失败，没有产生产物。任务 4 被跳过，summary.md 未创建。",
+          stats: [["7","Agentic Loop 轮次"],["6","模型决策"],["3","工具调用"],["6","上下文构建"],["1","权限确认"],["2 / 4","任务完成"]],
+          tasks: [
+            task("task-1", "查看项目文件", "确认 workspace 中可用的 Markdown 文件。", "completed", [
+              round("1", "Context → list_dir", "发现项目资料", [contextStep("task-1", [], [], []), step("Tool Execution", "列出 workspace。", "path: .", "3 Markdown files")]),
+              round("2", "complete_task → Artifact", "形成文件清单产物", [step("Task Artifact Created", "来源校验通过。", "Observation 1", "Workspace Markdown 文件清单", "artifact")])
+            ], artifact("Workspace Markdown 文件清单", "project.md\narchitecture.md\nusage.md", ["Observation 1 · list_dir(path=.) · success"], [], ["task-2", "task-3"])),
+            task("task-2", "读取并整理资料", "读取相关 Markdown 文件并形成摘要所需内容。", "completed", [
+              round("3", "Artifact → read_file", "读取项目资料", [contextStep("task-2", [], [], ["task-1 · Workspace Markdown 文件清单"]), step("Tool Execution", "读取相关 Markdown 文件。", "2 files", "success")]),
+              round("4", "complete_task → Artifact", "形成项目资料摘要", [step("Task Artifact Created", "来源校验通过。", "Observations 1, 2", "项目资料摘要", "artifact")])
+            ], artifact("项目资料摘要", "min-agent-demo 通过 AgentLoop、ToolRegistry、Observation 和 Trace Viewer 展示最小 Agent 机制。", ["Observation 1 · read_file(project.md) · success", "Observation 2 · read_file(architecture.md) · success"], ["task-1"], ["task-3"])),
+            task("task-3", "获取当前时间", "通过预定义命令获得真实本地时间。", "failed", [
+              round("5", "Artifacts → Model → Permission", "继承前序产物并请求命令权限", [contextStep("task-3", [], [], ["task-1 · Workspace Markdown 文件清单", "task-2 · 项目资料摘要"]), step("Model Decision", "提出 get_current_time。", "tool_call: run_command", '{"command_id":"get_current_time"}'), step("Permission Requested", "CLI 等待用户确认。", "run_command", "waiting", "permission")]),
+              round("6", "Permission Rejected → Stop", "拒绝后停止计划", [step("Permission Resolved", "用户拒绝本次命令执行。", "run_command", "approved=false", "failure"), step("Observation Added", "拒绝结果进入 task-3，不能出现 tool_started。", "permission", "rejected", "failure"), step("Task Failed", "任务未满足完成标准，因此不生成 Task Artifact。", "task-3", "failed · no artifact", "failure")])
+            ], null, "用户拒绝 run_command 权限，因此没有可校验的成功 Observation。", ["task-1", "task-2"]),
+            task("task-4", "生成并写入摘要", "创建包含项目摘要和当前时间的 summary.md。", "skipped", [], null, "前序任务失败，未执行，也没有产物。")
+          ]
+        },
+
+        simple: {
+          title: "已获取当前时间",
+          status: "completed",
+          request: "现在几点？",
+          result: "当前本地时间是 2026 年 7 月 10 日 16:45:21（CST）。执行命令前已请求权限。",
+          stats: [["2","Agentic Loop 轮次"],["2","模型决策"],["1","工具调用"],["2","上下文构建"],["1","权限确认"],["—","任务计划"]],
+          tasks: null,
+          rounds: [
+            round("1", "Context → Model → Permission", "提出受控命令", [contextStep("", [], [], [], false), step("Model Decision", "当前时间需要本地实时信息。", "tool_call: run_command", '{"command_id":"get_current_time"}'), step("Permission Requested", "CLI 展示命令和风险。", "/bin/date", "approved=true", "permission")]),
+            round("2", "Command → Observation → Answer", "执行并回答", [step("Tool Execution", "执行预定义命令。", "get_current_time", "2026-07-10 16:45:21 CST", "command"), step("Observation Added", "时间结果进入上下文。", "run_command", "success"), step("Final Answer", "根据真实结果回答。", "final_answer", "16:45:21 CST")])
+          ]
+        }
+      };
+
+      let activeMode = "success";
+      let selectedTaskId = "task-4";
+      let selectedRoundId = "9";
+
+      const escapeHtml = (value) => String(value).replace(/[&<>'"]/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"})[char]);
+
+      function taskLabel(taskId) {
+        const mode = modes[activeMode];
+        const found = mode.tasks?.find(item => item.id === taskId);
+        return found ? `${found.id} · ${found.title}` : taskId;
+      }
+
+      function renderMode(modeName) {
+        activeMode = modeName;
+        const mode = modes[modeName];
+        document.querySelectorAll("[data-mode]").forEach(button => button.classList.toggle("active", button.dataset.mode === modeName));
+        document.getElementById("run-title").textContent = mode.title;
+        const badge = document.getElementById("run-badge");
+        badge.textContent = mode.status;
+        badge.className = `badge ${mode.status}`;
+        document.getElementById("original-request").textContent = mode.request;
+        document.getElementById("final-result").textContent = mode.result;
+        document.getElementById("result-panel").className = `context-panel result ${mode.status === "failed" ? "failure" : "success"}`;
+        document.getElementById("summary-grid").innerHTML = mode.stats.map(([value,label]) => `<div class="summary-item"><span class="summary-value">${escapeHtml(value)}</span><span class="summary-label">${escapeHtml(label)}</span></div>`).join("");
+
+        const plan = document.getElementById("task-plan-panel");
+        if (!mode.tasks) {
+          plan.hidden = true;
+          document.getElementById("selected-task-label").hidden = true;
+          selectedRoundId = mode.rounds[0].id;
+          renderRounds(mode.rounds, selectedRoundId);
+          return;
+        }
+
+        plan.hidden = false;
+        document.getElementById("selected-task-label").hidden = false;
+        if (modeName === "success") {
+          selectedTaskId = "task-4";
+          selectedRoundId = "9";
+        } else if (modeName === "failure") {
+          selectedTaskId = "task-3";
+          selectedRoundId = "5";
+        }
+        renderTasks();
+      }
+
+      function renderTasks() {
+        const mode = modes[activeMode];
+        const completed = mode.tasks.filter(item => item.status === "completed").length;
+        document.getElementById("task-progress-text").textContent = `${completed} / ${mode.tasks.length} completed`;
+        document.getElementById("task-progress-value").style.width = `${completed / mode.tasks.length * 100}%`;
+        document.getElementById("task-list").innerHTML = mode.tasks.map((item,index) => `
+          <li><button type="button" class="task-card ${item.status} ${item.id === selectedTaskId ? "selected" : ""}" data-task-id="${item.id}">
+            <span class="task-top"><span class="task-index">Task ${index + 1}</span><span class="task-status">${item.status}</span></span>
+            <h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.criteria)}</p>
+            ${item.error ? `<span class="task-error">${escapeHtml(item.error)}</span>` : ""}
+          </button></li>`).join("");
+
+        document.querySelectorAll("[data-task-id]").forEach(button => button.addEventListener("click", () => {
+          selectedTaskId = button.dataset.taskId;
+          renderTasks();
+        }));
+
+        const selected = mode.tasks.find(item => item.id === selectedTaskId);
+        document.getElementById("selected-task-label").textContent = `${selected.id} · ${selected.title} · ${selected.status}`;
+        renderArtifactDetail(selected);
+
+        if (selected.rounds.length === 0) {
+          document.getElementById("round-list").innerHTML = "";
+          document.getElementById("round-detail").innerHTML = `<div class="empty-state"><strong>该任务未执行</strong><p>${escapeHtml(selected.error)}</p></div>`;
+        } else {
+          if (!selected.rounds.some(item => item.id === selectedRoundId)) selectedRoundId = selected.rounds[0].id;
+          renderRounds(selected.rounds, selectedRoundId);
+        }
+      }
+
+      function renderArtifactDetail(selected) {
+        const artifactStatus = document.getElementById("artifact-status");
+        const artifactBody = document.getElementById("artifact-body");
+        document.getElementById("artifact-title").textContent = `${selected.id} · ${selected.title} · 主产物`;
+        document.getElementById("artifact-subtitle").textContent = "模型提交文本与证据索引；运行时校验来源后，与任务完成状态原子保存。";
+
+        if (!selected.artifact) {
+          artifactStatus.textContent = "not created";
+          artifactStatus.className = "artifact-status missing";
+          const inherited = selected.inherited || [];
+          const inheritedText = inherited.length > 0
+            ? `进入失败任务前已注入：${inherited.map(taskLabel).join("；")}`
+            : "该任务未开始，因此没有注入前序产物。";
+          artifactBody.innerHTML = `<div class="artifact-empty"><strong>本任务没有产物</strong><p>${escapeHtml(selected.error || "任务未完成。")}</p><p>${escapeHtml(inheritedText)}</p></div>`;
+          return;
+        }
+
+        artifactStatus.textContent = "available";
+        artifactStatus.className = "artifact-status";
+        artifactBody.innerHTML = `
+          <div class="artifact-grid">
+            <section class="artifact-section"><h4>主产物内容</h4><pre id="artifact-content">${escapeHtml(selected.artifact.content)}</pre></section>
+            <section class="artifact-section"><h4>当前任务 Observation 来源</h4><ul id="artifact-evidence" class="evidence-list">${selected.artifact.evidence.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul></section>
+          </div>
+          <div class="artifact-flow">
+            <section class="artifact-flow-block"><strong>本任务继承的前序产物</strong><div id="artifact-inherited" class="artifact-chip-list">${renderArtifactChips(selected.artifact.inherited, "这是首个任务，没有前序产物")}</div></section>
+            <section class="artifact-flow-block"><strong>本产物的后续流向</strong><div id="artifact-forwarded" class="artifact-chip-list">${renderArtifactChips(selected.artifact.forwarded, "这是最终任务，没有后续流向")}</div></section>
+          </div>`;
+      }
+
+      function renderArtifactChips(taskIds, emptyText) {
+        if (!taskIds.length) return `<span class="artifact-none">${escapeHtml(emptyText)}</span>`;
+        return taskIds.map(taskId => `<span class="artifact-chip">${escapeHtml(taskLabel(taskId))}</span>`).join("");
+      }
+
+      function renderRounds(rounds, roundId) {
+        selectedRoundId = roundId;
+        document.getElementById("round-list").innerHTML = rounds.map(item => `
+          <li class="${item.id === roundId ? "active" : ""}"><button type="button" data-round-id="${item.id}">
+            <span class="round-index">${escapeHtml(item.id)}</span><span class="round-content"><span class="round-title">${escapeHtml(item.title)}</span><small>${escapeHtml(item.summary)}</small></span><span class="round-step-count">${item.steps.length} steps</span>
+          </button></li>`).join("");
+        document.querySelectorAll("[data-round-id]").forEach(button => button.addEventListener("click", () => renderRounds(rounds, button.dataset.roundId)));
+        renderRoundDetail(rounds.find(item => item.id === roundId));
+      }
+
+      function renderContextDetails(context) {
+        const baseCards = [
+          ["当前用户目标", "最高优先级"],
+          ["Workspace Config", "不改变权限边界"],
+          ["最近运行摘要", "当前 workspace"],
+          ["运行元信息", "本轮沿用"],
+          ["工具目录", "含权限边界"]
+        ];
+        const observations = context.observations.length ? context.observations.join("\n") : "0 条 · 当前任务尚无 Observation";
+        const selectedContent = context.selectedContent.length ? context.selectedContent.join("\n") : "0 files · 当前任务尚未读取文件";
+        const artifactDetails = context.inheritedArtifacts.length ? context.inheritedArtifacts.join("\n") : "0 份 · 当前任务没有前序产物";
+        const total = context.planned ? 8 : 7;
+        const contextCountLabel = context.planned ? "5 类基础 · 3 类动态" : "5 类基础 · 2 类动态";
+        const artifactCard = context.planned ? `<div class="context-source-card artifacts"><strong>Inherited Task Artifacts</strong><span>${escapeHtml(artifactDetails)}</span></div>` : "";
+        const scopeNote = context.planned
+          ? `<div class="context-scope-note">当前任务只能用自己的 Working Observations 证明完成；前序任务原始 Observation 不直接混入，本轮跨任务资料只来自已固化的 Task Artifacts。</div>`
+          : "";
+        return `
+          <div class="context-build-intro"><strong>本轮模型将使用 ${total} 类上下文</strong><span>${contextCountLabel}</span></div>
+          ${scopeNote}
+          <p class="context-group-title">运行级基础上下文</p>
+          <div class="context-source-grid">${baseCards.map(([name,note]) => `<div class="context-source-card"><strong>${name}</strong><span>${note}</span></div>`).join("")}</div>
+          <p class="context-group-title">当前任务动态上下文</p>
+          <div class="context-source-grid">
+            <div class="context-source-card"><strong>Working Observations</strong><span>${escapeHtml(observations)}</span></div>
+            <div class="context-source-card"><strong>Selected Project Content</strong><span>${escapeHtml(selectedContent)}</span></div>
+            ${artifactCard}
+          </div>`;
+      }
+
+      function renderRoundDetail(roundItem) {
+        const flow = roundItem.steps.map((item,index) => `${index > 0 ? '<span class="flow-arrow">→</span>' : ""}<span class="flow-node">${escapeHtml(item.title)}</span>`).join("");
+        const steps = roundItem.steps.map((item,index) => {
+          const special = item.type === "command" ? "command-step" : item.type === "permission" ? "permission-step" : item.type === "artifact" ? "artifact-step" : item.type === "failure" ? "failure-step" : "";
+          const context = item.type === "context" ? renderContextDetails(item.context) : "";
+          return `<article class="event-step ${special}"><div class="event-step-header"><span class="event-step-number">${index + 1}</span><div><h3>${escapeHtml(item.title)}</h3><p class="detail-meta">${escapeHtml(item.meta)}</p></div></div>${context}<div class="step-io-grid"><section class="detail-section"><h4>Input</h4><pre>${escapeHtml(item.input)}</pre></section><section class="detail-section"><h4>Output</h4><pre>${escapeHtml(item.output)}</pre></section></div></article>`;
+        }).join("");
+        document.getElementById("round-detail").innerHTML = `<section class="flow-overview"><h3>本轮流程</h3><div class="flow-nodes">${flow}</div></section>${steps}`;
+      }
+
+      document.querySelectorAll("[data-mode]").forEach(button => button.addEventListener("click", () => renderMode(button.dataset.mode)));
+      renderMode("success");
+    </script>
+  </body>
+</html>

@@ -171,3 +171,17 @@ class ContextBuilderV08Test(unittest.TestCase):
         data = context.to_dict()
         self.assertNotIn("task_plan", data)
         self.assertNotIn("current_task_id", data)
+
+
+class ContextBuilderV09Test(unittest.TestCase):
+    def test_inherited_artifacts_are_serialized_only_for_planned_context(self) -> None:
+        from min_agent.context_builder import ContextBuilder
+        from min_agent.types import TaskArtifact, TaskSnapshot
+
+        artifact = TaskArtifact("task-1", "文件清单", "project.md", [1], 8, "available")
+        context = ContextBuilder().build(
+            "goal", "ws", [], [], task_plan=[TaskSnapshot("task-1", "T1", "C1", "completed")],
+            inherited_task_artifacts=[artifact],
+        )
+        self.assertEqual(context.to_dict()["inherited_task_artifacts"][0]["task_id"], "task-1")
+        self.assertNotIn("inherited_task_artifacts", ContextBuilder().build("simple", "ws", [], []).to_dict())

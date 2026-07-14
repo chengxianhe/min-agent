@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -760,32 +761,72 @@ class DeepSeekLLMV08CreatePlanTest(unittest.TestCase):
 
 
 class DeepSeekLLMV08CompleteTaskTest(unittest.TestCase):
-    def test_parses_valid_complete_task(self) -> None:
+    def _decide(self, task_artifact_json: str | None):
         from min_agent.deepseek_llm import DeepSeekLLM
         from min_agent.types import AgentContext, ToolSpec
 
-        llm = DeepSeekLLM(
-            client=StubClient(
-                '{"kind":"complete_task","task_id":"task-1",'
-                '"completion_evidence":"Observation 1 contains a successful list_dir result",'
-                '"evidence_observation_indexes":[1],'
-                '"reason":"The current completion criterion is satisfied"}'
-            ),
-            model="deepseek-v4-flash",
+        artifact_field = (
+            f',"task_artifact":{task_artifact_json}'
+            if task_artifact_json is not None
+            else ""
         )
+        raw = (
+            '{"kind":"complete_task","task_id":"task-1",'
+            '"completion_evidence":"Observation 1 succeeded",'
+            '"evidence_observation_indexes":[1]'
+            f'{artifact_field},"reason":"criterion met"}}'
+        )
+        llm = DeepSeekLLM(client=StubClient(raw), model="deepseek-v4-flash")
         context = AgentContext(
             user_goal="复合目标",
             workspace="ws",
             available_tools=[ToolSpec(name="list_dir", description="List")],
             observations=[],
         )
+        return llm.decide(context), raw
 
-        action = llm.decide(context)
+    def test_parses_valid_complete_task(self) -> None:
+        action, raw = self._decide(
+            '{"title":"  文件清单  ","content":"  project.md  "}'
+        )
 
         self.assertEqual(action.kind, "complete_task")
         self.assertEqual(action.task_id, "task-1")
         self.assertIn("Observation 1", action.completion_evidence or "")
         self.assertEqual(action.evidence_observation_indexes, [1])
+        self.assertIsNotNone(action.task_artifact)
+        self.assertEqual(action.task_artifact.title, "文件清单")
+        self.assertEqual(action.task_artifact.content, "project.md")
+        self.assertEqual(
+            action.metadata["model_call"]["response"]["content"],
+            raw,
+        )
+
+    def test_rejects_invalid_task_artifact_shapes(self) -> None:
+        invalid_artifacts = {
+            "missing": None,
+            "non_object": '"artifact text"',
+            "missing_title": '{"content":"project.md"}',
+            "non_string_title": '{"title":1,"content":"project.md"}',
+            "blank_title": '{"title":"  ","content":"project.md"}',
+            "missing_content": '{"title":"文件清单"}',
+            "non_string_content": '{"title":"文件清单","content":1}',
+            "blank_content": '{"title":"文件清单","content":"  "}',
+            "runtime_status": '{"title":"文件清单","content":"project.md","status":"available"}',
+            "runtime_step": '{"title":"文件清单","content":"project.md","created_at_step":8}',
+            "runtime_task_id": '{"title":"文件清单","content":"project.md","task_id":"task-1"}',
+        }
+
+        for label, task_artifact_json in invalid_artifacts.items():
+            with self.subTest(label=label):
+                action, raw = self._decide(task_artifact_json)
+                self.assertEqual(action.kind, "final_answer")
+                self.assertFalse(action.success)
+                self.assertIn("task_artifact", action.message or "")
+                self.assertEqual(
+                    action.metadata["model_call"]["response"]["content"],
+                    raw,
+                )
 
     def test_rejects_complete_task_with_missing_task_id(self) -> None:
         from min_agent.deepseek_llm import DeepSeekLLM
@@ -883,6 +924,33 @@ class DeepSeekLLMV08CompleteTaskTest(unittest.TestCase):
         self.assertEqual(action.kind, "final_answer")
         self.assertFalse(action.success)
 
+    def test_rejects_complete_task_with_non_positive_index(self) -> None:
+        from min_agent.deepseek_llm import DeepSeekLLM
+        from min_agent.types import AgentContext, ToolSpec
+
+        for index in (0, -1):
+            with self.subTest(index=index):
+                llm = DeepSeekLLM(
+                    client=StubClient(
+                        '{"kind":"complete_task","task_id":"task-1",'
+                        '"completion_evidence":"done",'
+                        f'"evidence_observation_indexes":[{index}],'
+                        '"reason":"ok"}'
+                    ),
+                    model="deepseek-v4-flash",
+                )
+                context = AgentContext(
+                    user_goal="测试",
+                    workspace="ws",
+                    available_tools=[ToolSpec(name="read_file", description="Read")],
+                    observations=[],
+                )
+
+                action = llm.decide(context)
+                self.assertEqual(action.kind, "final_answer")
+                self.assertFalse(action.success)
+                self.assertIn("从 1 开始", action.message or "")
+
 
 class DeepSeekLLMV08PromptTest(unittest.TestCase):
     def test_system_prompt_includes_create_plan_example(self) -> None:
@@ -923,6 +991,141 @@ class DeepSeekLLMV08PromptTest(unittest.TestCase):
         system_prompt = llm._system_prompt()
 
         self.assertIn("2–5", system_prompt)
+
+    def test_system_prompt_defines_v0_9_artifact_boundaries(self) -> None:
+        from min_agent.deepseek_llm import DeepSeekLLM
+
+        llm = DeepSeekLLM(
+            client=StubClient('{"kind":"final_answer","message":"ok","reason":"done","success":true}'),
+            model="deepseek-v4-flash",
+        )
+
+        system_prompt = llm._system_prompt()
+
+        self.assertIn("working_observations and selected_project_content are current-task-only", system_prompt)
+        self.assertIn("Only successful working_observations can be completion evidence", system_prompt)
+        self.assertIn("inherited_task_artifacts are prior stable task outputs", system_prompt)
+        self.assertIn("can never be cited as completion evidence", system_prompt)
+        self.assertIn("non-empty task_artifact title/content", system_prompt)
+        self.assertIn("final planned answer", system_prompt)
+        self.assertIn("No hidden state or previous raw Observation", system_prompt)
+
+    def test_planned_user_prompt_separates_dynamic_context_sources(self) -> None:
+        from min_agent.deepseek_llm import DeepSeekLLM
+        from min_agent.types import (
+            AgentContext,
+            Observation,
+            TaskArtifact,
+            TaskSnapshot,
+            ToolResult,
+            ToolSpec,
+        )
+
+        client = StubClient('{"kind":"final_answer","message":"ok","reason":"done","success":true}')
+        llm = DeepSeekLLM(client=client, model="deepseek-v4-flash")
+        artifact = TaskArtifact(
+            task_id="task-1",
+            title="文件清单",
+            content="project.md",
+            evidence_observation_indexes=[1],
+            created_at_step=10,
+            status="available",
+        )
+        context = AgentContext(
+            user_goal="复合目标",
+            workspace="ws",
+            available_tools=[ToolSpec(name="read_file", description="Read")],
+            observations=[
+                Observation(
+                    tool_name="read_file",
+                    args={"path": "notes.md"},
+                    result=ToolResult(success=True, content="notes"),
+                ),
+                Observation(
+                    tool_name="read_file",
+                    args={"path": "project.md"},
+                    result=ToolResult(success=True, content="project"),
+                ),
+            ],
+            selected_project_content=["notes.md", "project.md"],
+            task_plan=[
+                TaskSnapshot("task-1", "列出文件", "获得文件清单", "completed", artifact=artifact),
+                TaskSnapshot("task-2", "读取资料", "获得资料内容", "running"),
+            ],
+            current_task_id="task-2",
+            inherited_task_artifacts=[artifact],
+        )
+
+        llm.decide(context)
+        payload = json.loads(client.calls[0][1])
+
+        self.assertEqual(payload["current_task_id"], "task-2")
+        self.assertEqual(
+            [item["observation_index"] for item in payload["working_observations"]],
+            [1, 2],
+        )
+        self.assertEqual(payload["selected_project_content"], ["notes.md", "project.md"])
+        self.assertEqual(
+            [item["task_id"] for item in payload["inherited_task_artifacts"]],
+            ["task-1"],
+        )
+        self.assertIn("Act only on current_task_id", payload["task_instruction"])
+
+    def test_completed_plan_prompt_requires_artifact_backed_final_answer(self) -> None:
+        from min_agent.deepseek_llm import DeepSeekLLM
+        from min_agent.types import AgentContext, TaskArtifact, TaskSnapshot, ToolSpec
+
+        client = StubClient('{"kind":"final_answer","message":"ok","reason":"done","success":true}')
+        llm = DeepSeekLLM(client=client, model="deepseek-v4-flash")
+        artifacts = [
+            TaskArtifact("task-1", "A", "one", [1], 10, "available"),
+            TaskArtifact("task-2", "B", "two", [1], 20, "available"),
+        ]
+        context = AgentContext(
+            user_goal="复合目标",
+            workspace="ws",
+            available_tools=[ToolSpec(name="read_file", description="Read")],
+            observations=[],
+            task_plan=[
+                TaskSnapshot("task-1", "A", "A done", "completed", artifact=artifacts[0]),
+                TaskSnapshot("task-2", "B", "B done", "completed", artifact=artifacts[1]),
+            ],
+            current_task_id=None,
+            inherited_task_artifacts=artifacts,
+        )
+
+        llm.decide(context)
+        payload = json.loads(client.calls[0][1])
+
+        self.assertIsNone(payload["current_task_id"])
+        self.assertEqual(
+            [item["task_id"] for item in payload["inherited_task_artifacts"]],
+            ["task-1", "task-2"],
+        )
+        self.assertIn("Return final_answer", payload["task_instruction"])
+        self.assertIn("based only on inherited_task_artifacts", payload["task_instruction"])
+        self.assertNotIn("nonexistent current task", payload["task_instruction"])
+
+    def test_simple_user_prompt_omits_planned_artifact_fields(self) -> None:
+        from min_agent.deepseek_llm import DeepSeekLLM
+        from min_agent.types import AgentContext, ToolSpec
+
+        client = StubClient('{"kind":"final_answer","message":"ok","reason":"done","success":true}')
+        llm = DeepSeekLLM(client=client, model="deepseek-v4-flash")
+        context = AgentContext(
+            user_goal="简单目标",
+            workspace="ws",
+            available_tools=[ToolSpec(name="read_file", description="Read")],
+            observations=[],
+        )
+
+        llm.decide(context)
+        payload = json.loads(client.calls[0][1])
+
+        self.assertNotIn("task_plan", payload)
+        self.assertNotIn("current_task_id", payload)
+        self.assertNotIn("inherited_task_artifacts", payload)
+        self.assertNotIn("task_instruction", payload)
 
     def test_output_contract_allows_all_four_kinds(self) -> None:
         from min_agent.deepseek_llm import DeepSeekLLM

@@ -4,7 +4,7 @@ import json
 from typing import Protocol
 
 from min_agent.deepseek_client import ModelClientError
-from min_agent.types import AgentAction, AgentContext, TaskDefinition
+from min_agent.types import AgentAction, AgentContext, TaskArtifactDraft, TaskDefinition
 
 
 class ChatCompletionClient(Protocol):
@@ -187,6 +187,21 @@ class DeepSeekLLM:
                     f"evidence_observation_indexes 中的元素必须是整数，不允许 {type(idx).__name__}: {idx}。",
                     reason, metadata,
                 )
+            if idx < 1:
+                return self._invalid_action(
+                    f"evidence_observation_indexes 必须使用从 1 开始的 Observation 索引，不允许 {idx}。",
+                    reason, metadata,
+                )
+
+        draft = data.get("task_artifact")
+        if not isinstance(draft, dict) or set(draft) != {"title", "content"}:
+            return self._invalid_action(
+                "complete_task 的 task_artifact 必须且只能包含 title 和 content。", reason, metadata
+            )
+        title = draft.get("title")
+        content = draft.get("content")
+        if not isinstance(title, str) or not title.strip() or not isinstance(content, str) or not content.strip():
+            return self._invalid_action("complete_task 的 task_artifact 标题和内容都不能为空。", reason, metadata)
 
         return AgentAction.complete_task(
             task_id=task_id,
@@ -194,6 +209,7 @@ class DeepSeekLLM:
             evidence_observation_indexes=evidence_observation_indexes,
             reason=reason,
             metadata=metadata,
+            task_artifact=TaskArtifactDraft(title=title.strip(), content=content.strip()),
         )
 
     def _model_call_metadata(
@@ -235,13 +251,17 @@ Do not request workspace-external paths.
 Do not request overwrite of existing files.
 You only propose the action; local permission and tools decide execution.
 
-Task Planning Rules (V0.8):
+Task Planning Rules (V0.9):
 - Create a plan only for 2–5 ordered, independently verifiable user outcomes.
 - Never create a one-task plan. Tool-call count does NOT determine task count.
 - A task is a verifiable subgoal, not a single tool call.
 - If a plan already exists for this run (current_task_id is present), do NOT propose another create_plan.
 - After plan creation, act only on current_task_id.
-- To complete a task, return complete_task with explicit 1-based indexes into the current task's working Observations.
+- working_observations and selected_project_content are current-task-only. Only successful working_observations can be completion evidence.
+- inherited_task_artifacts are prior stable task outputs. They are input only and can never be cited as completion evidence.
+- To complete a task, return complete_task with explicit 1-based indexes into the current task's working Observations and a non-empty task_artifact title/content.
+- When every planned task is completed, return the final planned answer from inherited_task_artifacts only.
+- No hidden state or previous raw Observation may substitute for a stored task artifact.
 - Every cited Observation index must have result.success=true.
 - Do not change task definitions after creation.
 - Stop-behavior is local and cannot be bypassed.
@@ -296,6 +316,7 @@ Allowed json outputs:
   "task_id": "task-1",
   "completion_evidence": "Observation 1 contains a successful list_dir result",
   "evidence_observation_indexes": [1],
+  "task_artifact": {"title": "Workspace Markdown 文件清单", "content": "project.md\\narchitecture.md"},
   "reason": "The current completion criterion is satisfied"
 }
 """
@@ -323,7 +344,8 @@ Allowed json outputs:
 
         # working observations
         prompt_parts["working_observations"] = [
-            obs.to_dict() for obs in context.observations
+            {"observation_index": index, **obs.to_dict()}
+            for index, obs in enumerate(context.observations, start=1)
         ]
         prompt_parts["selected_project_content"] = list(context.selected_project_content)
 
@@ -334,10 +356,12 @@ Allowed json outputs:
         if context.task_plan:
             prompt_parts["task_plan"] = [t.to_dict() for t in context.task_plan]
             prompt_parts["current_task_id"] = context.current_task_id
+            prompt_parts["inherited_task_artifacts"] = [artifact.to_dict() for artifact in context.inherited_task_artifacts]
             prompt_parts["task_instruction"] = (
-                "A plan already exists. Act only on current_task_id. "
-                "Return complete_task with explicit 1-based current-task Observation indexes. "
+                "A plan already exists. Act only on current_task_id and use only working_observations as completion evidence. "
                 "Do NOT return create_plan again."
+                if context.current_task_id else
+                "Every planned task is complete. Return final_answer based only on inherited_task_artifacts; do not create a plan or tool call."
             )
 
         # output contract

@@ -8,7 +8,7 @@ from min_agent.decision_model import DecisionModel
 from min_agent.task_plan import TaskPlan, TaskPlanError
 from min_agent.tool_registry import ToolRegistry
 from min_agent.trace_recorder import TraceRecorder
-from min_agent.types import AgentAction, AgentRunResult, Observation, TaskDefinition, ToolResult
+from min_agent.types import AgentAction, AgentRunResult, Observation, TaskArtifact, TaskDefinition, ToolResult
 
 
 def preview_text(value: str, limit: int = 200) -> str:
@@ -43,6 +43,9 @@ class AgentLoop:
         # V0.8: 任务计划状态
         self.task_plan: TaskPlan | None = None
         self._task_observations: list[Observation] = []
+        self._task_selected_project_content: list[str] = []
+        self._failure_handling_error: str | None = None
+        self._terminal_failure_emitted = False
         self._has_started_tool: bool = False
 
     # ---- helpers ----
@@ -54,7 +57,8 @@ class AgentLoop:
         return current.task_id if current else None
 
     def _emit(self, phase: str, status: str, title: str, reason: str = "",
-              input: dict | None = None, output: dict | None = None) -> None:
+              input: dict | None = None, output: dict | None = None,
+              task_id: str | None = None) -> None:
         """Emit a trace event automatically scoped to the current task."""
         self.recorder.emit(
             phase=phase,  # type: ignore[arg-type]
@@ -63,7 +67,7 @@ class AgentLoop:
             reason=reason,
             input=input or {},
             output=output or {},
-            task_id=self._current_task_id(),
+            task_id=self._current_task_id() if task_id is None else task_id,
         )
 
     def _emit_task_event(self, phase: str, task_id: str, reason: str = "",
@@ -98,9 +102,12 @@ class AgentLoop:
 
     def _clear_task_buffer(self) -> None:
         self._task_observations = []
+        self._task_selected_project_content = []
 
     def _run_failed_event(self, message: str) -> None:
         """Emit run-level failed events (task_id=None in composite mode)."""
+        if self._terminal_failure_emitted:
+            return
         tid = None if self.task_plan else self._current_task_id()
         self.recorder.emit(
             phase="final_answer",
@@ -110,6 +117,7 @@ class AgentLoop:
             output={"message": message},
             task_id=None if self.task_plan is not None else tid,
         )
+        self._terminal_failure_emitted = True
         self.recorder.emit(
             phase="run_failed",
             status="failed",
@@ -123,6 +131,8 @@ class AgentLoop:
         """Build deterministic failure message enumerating task statuses."""
         if self.task_plan is None:
             return "任务执行失败"
+        if self._failure_handling_error is not None:
+            return self._failure_handling_error
 
         snap = self.task_plan.snapshot()
         completed = [t for t in snap if t.status == "completed"]
@@ -173,11 +183,14 @@ class AgentLoop:
                 workspace=self.workspace,
                 available_tools=self.tools.list_specs(),
                 observations=self._task_observations if self.task_plan else self.observations,
-                selected_project_content=self._selected_project_content,
+                selected_project_content=(
+                    self._task_selected_project_content if self.task_plan else self._selected_project_content
+                ),
                 run_id=self.recorder.run_id,
                 started_at=self.recorder.started_at,
                 task_plan=self.task_plan.snapshot() if self.task_plan else None,
                 current_task_id=self._current_task_id(),
+                inherited_task_artifacts=self.task_plan.artifacts() if self.task_plan else None,
             )
             self.recorder.emit(
                 phase="context_built",
@@ -185,6 +198,7 @@ class AgentLoop:
                 title="整理上下文",
                 reason="准备用户目标、可用工具和已有观察结果",
                 output=context.to_dict(),
+                task_id=self._current_task_id(),
             )
 
             self._pause()
@@ -195,6 +209,7 @@ class AgentLoop:
                 title="决定下一步",
                 reason=action.reason,
                 output=action.to_dict(),
+                task_id=self._current_task_id(),
             )
 
             # ---- V0.8: handle create_plan ----
@@ -290,11 +305,14 @@ class AgentLoop:
             return AgentRunResult(message=msg, success=False)
 
         try:
-            completed = self.task_plan.complete_current(
+            artifact_step = self.recorder.next_step()
+            completed, artifact = self.task_plan.complete_current(
                 action.task_id or "",
                 action.completion_evidence or "",
                 list(action.evidence_observation_indexes),
                 list(self._task_observations),
+                action.task_artifact,
+                artifact_step,
             )
         except TaskPlanError as e:
             # 完成证据无效 → 失败当前任务
@@ -303,8 +321,10 @@ class AgentLoop:
             self._run_failed_event(msg)
             return AgentRunResult(message=msg, success=False)
 
+        self._emit_artifact_created(artifact)
         self._emit_task_event("task_completed", completed.task_id,
                               reason=f"完成：{completed.title}")
+        self._clear_task_buffer()
 
         # 检查是否全部完成
         if self.task_plan.all_completed():
@@ -313,7 +333,6 @@ class AgentLoop:
         # 启动下一个任务
         next_task = self.task_plan.start_next()
         if next_task is not None:
-            self._clear_task_buffer()
             self._emit_task_event("task_started", next_task.task_id,
                                   reason=f"开始执行：{next_task.title}")
 
@@ -452,8 +471,9 @@ class AgentLoop:
         # Track read files
         if action.tool_name == "read_file" and result.success:
             path = action.args.get("path")
-            if isinstance(path, str) and path not in self._selected_project_content:
-                self._selected_project_content.append(path)
+            target = self._task_selected_project_content if self.task_plan else self._selected_project_content
+            if isinstance(path, str) and path not in target:
+                target.append(path)
 
         observation = Observation(tool_name=action.tool_name, args=action.args, result=result)
         self._append_observation(observation)
@@ -488,12 +508,51 @@ class AgentLoop:
             failed, skipped = self.task_plan.fail_current(reason)
             self._emit_task_event("task_failed", failed.task_id,
                                   failure_reason=reason)
+            self._emit_artifact_missing(failed, self.task_plan.artifacts())
             for s in skipped:
                 self._emit_task_event("task_skipped", s.task_id,
                                       failure_reason=s.failure_reason)
-        except TaskPlanError:
-            pass
+                self._emit_artifact_missing(s, [])
+        except TaskPlanError as exc:
+            self._failure_handling_error = f"任务失败状态转换异常：{exc}"
+            self._run_failed_event(self._failure_handling_error)
         self._clear_task_buffer()
+
+    def _emit_artifact_created(self, artifact: TaskArtifact) -> None:
+        if self.task_plan is None:
+            return
+        evidence = [
+            {
+                "index": index,
+                "tool_name": self._task_observations[index - 1].tool_name,
+                "args": dict(self._task_observations[index - 1].args),
+                "success": True,
+            }
+            for index in artifact.evidence_observation_indexes
+        ]
+        inherited = [item.task_id for item in self.task_plan.artifacts() if item.task_id != artifact.task_id]
+        self.recorder.emit(
+            phase="task_artifact_created", status="completed", title="任务产物已创建",
+            reason=f"任务 {artifact.task_id} 已形成可继承产物",
+            output={"artifact": artifact.to_dict(), "evidence_observations": evidence,
+                    "inherited_task_ids": inherited,
+                    "forwarded_task_ids": self.task_plan.later_task_ids(artifact.task_id)},
+            task_id=artifact.task_id,
+        )
+
+    def _emit_artifact_missing(self, snapshot, inherited: list[TaskArtifact]) -> None:
+        artifact = TaskArtifact(
+            task_id=snapshot.task_id, title=f"{snapshot.title}的任务产物", content="",
+            evidence_observation_indexes=[], created_at_step=self.recorder.next_step(),
+            status="missing", missing_reason=snapshot.failure_reason,
+        )
+        self.recorder.emit(
+            phase="task_artifact_missing", status="info", title="未产生产物",
+            reason=snapshot.failure_reason,
+            output={"artifact": artifact.to_dict(),
+                    "inherited_task_ids": [item.task_id for item in inherited],
+                    "forwarded_task_ids": []}, task_id=snapshot.task_id,
+        )
 
     def _maybe_fail_or_continue(self, message: str,
                                 skip_tool_started: bool = False) -> AgentRunResult | None:

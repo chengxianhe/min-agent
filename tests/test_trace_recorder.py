@@ -105,3 +105,14 @@ class TraceRecorderV08Test(unittest.TestCase):
         events = recorder.history()
         self.assertEqual(events[0].task_id, "task-1")
         self.assertIsNone(events[1].task_id)
+
+
+class TraceRecorderV09Test(unittest.TestCase):
+    def test_next_step_matches_next_emitted_event(self) -> None:
+        from min_agent.trace_recorder import TraceRecorder
+
+        recorder = TraceRecorder("goal", "workspace", run_id="run-1")
+        self.assertEqual(recorder.next_step(), 1)
+        event = recorder.emit("run_started", "running", "start")
+        self.assertEqual(event.step, 1)
+        self.assertEqual(recorder.next_step(), 2)

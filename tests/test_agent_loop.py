@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -337,50 +338,58 @@ class AgentLoopV08SuccessTest(unittest.TestCase):
         from min_agent.task_plan import TaskPlan
         from min_agent.tool_registry import ToolRegistry
         from min_agent.trace_recorder import TraceRecorder
-        from min_agent.types import AgentAction, AgentContext, TaskDefinition, ToolResult, ToolSpec
+        from min_agent.types import AgentAction, AgentContext, TaskArtifactDraft, TaskDefinition, ToolResult, ToolSpec
 
         class ScriptedPlanModel:
             def __init__(self) -> None:
                 self._step = 0
+                self.contexts: list[AgentContext] = []
 
             def decide(self, context: AgentContext) -> AgentAction:
+                self.contexts.append(context)
                 self._step += 1
                 if self._step == 1:
                     return AgentAction.create_plan(
                         [
-                            TaskDefinition("task-1", "查看文件", "成功列出目录"),
+                            TaskDefinition("task-1", "读取项目", "成功读取 project.md"),
                             TaskDefinition("task-2", "读取资料", "成功读取 notes.md"),
                         ],
                         "Composite goal needs two outcomes",
                     )
                 elif self._step == 2:
-                    return AgentAction.tool_call("list_dir", {"path": "."}, "Need listing")
+                    return AgentAction.tool_call("read_file", {"path": "project.md"}, "Need project")
                 elif self._step == 3:
                     return AgentAction.complete_task(
-                        "task-1", "list_dir succeeded", [1], "Criterion met"
+                        "task-1", "read_file succeeded", [1], "Criterion met",
+                        task_artifact=TaskArtifactDraft("项目摘要", "project content")
                     )
                 elif self._step == 4:
                     return AgentAction.tool_call("read_file", {"path": "notes.md"}, "Need content")
                 elif self._step == 5:
                     return AgentAction.complete_task(
-                        "task-2", "read_file succeeded", [1], "Criterion met"
+                        "task-2", "read_file succeeded", [1], "Criterion met",
+                        task_artifact=TaskArtifactDraft("资料摘要", "file content")
                     )
                 else:
                     return AgentAction.final_answer("done", "All tasks completed")
 
+        model = ScriptedPlanModel()
         registry = ToolRegistry()
         registry.register(
-            ToolSpec(name="list_dir", description="List directory"),
-            lambda args: ToolResult(success=True, content="notes.md"),
-        )
-        registry.register(
             ToolSpec(name="read_file", description="Read file"),
-            lambda args: ToolResult(success=True, content="file content"),
+            lambda args: ToolResult(
+                success=True,
+                content=(
+                    "project content"
+                    if args.get("path") == "project.md"
+                    else "file content"
+                ),
+            ),
         )
         recorder = TraceRecorder(user_goal="复合目标", workspace="ws")
         loop = AgentLoop(
             context_builder=ContextBuilder(),
-            llm=ScriptedPlanModel(),
+            llm=model,
             tools=registry,
             recorder=recorder,
             workspace="ws",
@@ -431,12 +440,92 @@ class AgentLoopV08SuccessTest(unittest.TestCase):
         )
         self.assertLess(task1_completed_idx, task2_started_idx)
 
+        task1_contexts = [
+            context for context in model.contexts
+            if context.current_task_id == "task-1"
+        ]
+        task2_contexts = [
+            context for context in model.contexts
+            if context.current_task_id == "task-2"
+        ]
+        final_context = model.contexts[-1]
+
+        self.assertEqual(task1_contexts[0].inherited_task_artifacts, [])
+        self.assertEqual(
+            [artifact.task_id for artifact in task2_contexts[0].inherited_task_artifacts],
+            ["task-1"],
+        )
+        self.assertEqual(task2_contexts[0].observations, [])
+        self.assertEqual(task2_contexts[0].selected_project_content, [])
+        self.assertEqual(task2_contexts[-1].selected_project_content, ["notes.md"])
+
+        self.assertIsNone(final_context.current_task_id)
+        self.assertEqual(final_context.observations, [])
+        self.assertEqual(final_context.selected_project_content, [])
+        self.assertEqual(
+            [artifact.task_id for artifact in final_context.inherited_task_artifacts],
+            ["task-1", "task-2"],
+        )
+
+        artifact_events = [
+            event for event in events if event.phase == "task_artifact_created"
+        ]
+        self.assertEqual(
+            [event.task_id for event in artifact_events],
+            ["task-1", "task-2"],
+        )
+        for event in artifact_events:
+            event_index = events.index(event)
+            self.assertEqual(events[event_index + 1].phase, "task_completed")
+            self.assertEqual(events[event_index + 1].task_id, event.task_id)
+            self.assertEqual(
+                event.output["artifact"]["created_at_step"],
+                event.step,
+            )
+            self.assertEqual(
+                event.output["evidence_observations"],
+                [{
+                    "index": 1,
+                    "tool_name": "read_file",
+                    "args": {
+                        "path": "project.md" if event.task_id == "task-1" else "notes.md"
+                    },
+                    "success": True,
+                }],
+            )
+
+        lifecycle = [
+            event.phase for event in events
+            if event.phase in {
+                "plan_created",
+                "task_started",
+                "task_artifact_created",
+                "task_completed",
+                "final_answer",
+                "run_completed",
+            }
+        ]
+        self.assertEqual(
+            lifecycle,
+            [
+                "plan_created",
+                "task_started",
+                "task_artifact_created",
+                "task_completed",
+                "task_started",
+                "task_artifact_created",
+                "task_completed",
+                "final_answer",
+                "run_completed",
+            ],
+        )
+
     def test_scripted_model_task_order_matches_plan(self) -> None:
         from min_agent.agent_loop import AgentLoop
         from min_agent.context_builder import ContextBuilder
         from min_agent.tool_registry import ToolRegistry
         from min_agent.trace_recorder import TraceRecorder
-        from min_agent.types import AgentAction, AgentContext, TaskDefinition, ToolResult, ToolSpec
+        from min_agent.types import AgentAction, AgentContext, TaskArtifactDraft, TaskDefinition, ToolResult, ToolSpec
 
         class ThreeTaskModel:
             def __init__(self) -> None:
@@ -456,15 +545,15 @@ class AgentLoopV08SuccessTest(unittest.TestCase):
                 elif self._step == 2:
                     return AgentAction.tool_call("tool_a", {}, "task 1 tool")
                 elif self._step == 3:
-                    return AgentAction.complete_task("task-1", "done", [1], "ok")
+                    return AgentAction.complete_task("task-1", "done", [1], "ok", task_artifact=TaskArtifactDraft("T1 产物", "a"))
                 elif self._step == 4:
                     return AgentAction.tool_call("tool_b", {}, "task 2 tool")
                 elif self._step == 5:
-                    return AgentAction.complete_task("task-2", "done", [1], "ok")
+                    return AgentAction.complete_task("task-2", "done", [1], "ok", task_artifact=TaskArtifactDraft("T2 产物", "b"))
                 elif self._step == 6:
                     return AgentAction.tool_call("tool_c", {}, "task 3 tool")
                 elif self._step == 7:
-                    return AgentAction.complete_task("task-3", "done", [1], "ok")
+                    return AgentAction.complete_task("task-3", "done", [1], "ok", task_artifact=TaskArtifactDraft("T3 产物", "c"))
                 else:
                     return AgentAction.final_answer("all done", "completed")
 
@@ -515,7 +604,7 @@ class AgentLoopV08FailureTest(unittest.TestCase):
         from min_agent.context_builder import ContextBuilder
         from min_agent.tool_registry import ToolRegistry
         from min_agent.trace_recorder import TraceRecorder
-        from min_agent.types import AgentAction, AgentContext, TaskDefinition, ToolResult, ToolSpec
+        from min_agent.types import AgentAction, AgentContext, TaskArtifactDraft, TaskDefinition, ToolResult, ToolSpec
 
         class FailingToolModel:
             def __init__(self) -> None:
@@ -570,7 +659,7 @@ class AgentLoopV08FailureTest(unittest.TestCase):
         from min_agent.context_builder import ContextBuilder
         from min_agent.tool_registry import ToolRegistry
         from min_agent.trace_recorder import TraceRecorder
-        from min_agent.types import AgentAction, AgentContext, TaskDefinition, ToolResult, ToolSpec
+        from min_agent.types import AgentAction, AgentContext, TaskArtifactDraft, TaskDefinition, ToolResult, ToolSpec
 
         class WriteInTaskModel:
             def __init__(self) -> None:
@@ -620,6 +709,73 @@ class AgentLoopV08FailureTest(unittest.TestCase):
         # 确保没有 tool_started 事件
         tool_started = [e for e in events if e.phase == "tool_started"]
         self.assertEqual(tool_started, [])
+
+    def test_failure_transition_error_emits_deterministic_run_failure(self) -> None:
+        from min_agent.agent_loop import AgentLoop
+        from min_agent.context_builder import ContextBuilder
+        from min_agent.task_plan import TaskPlan, TaskPlanError
+        from min_agent.tool_registry import ToolRegistry
+        from min_agent.trace_recorder import TraceRecorder
+        from min_agent.types import AgentAction, AgentContext, TaskDefinition, ToolResult, ToolSpec
+
+        class FailingToolModel:
+            def __init__(self) -> None:
+                self._step = 0
+
+            def decide(self, context: AgentContext) -> AgentAction:
+                self._step += 1
+                if self._step == 1:
+                    return AgentAction.create_plan(
+                        [
+                            TaskDefinition("task-1", "T1", "C1"),
+                            TaskDefinition("task-2", "T2", "C2"),
+                        ],
+                        "Plan",
+                    )
+                return AgentAction.tool_call("read_file", {"path": "x.md"}, "fail")
+
+        registry = ToolRegistry()
+        registry.register(
+            ToolSpec(name="read_file", description="Read"),
+            lambda args: ToolResult(success=False, error="read failed"),
+        )
+        recorder = TraceRecorder(user_goal="fail transition", workspace="ws")
+        loop = AgentLoop(
+            context_builder=ContextBuilder(),
+            llm=FailingToolModel(),
+            tools=registry,
+            recorder=recorder,
+            workspace="ws",
+            step_delay_seconds=0,
+        )
+
+        with patch.object(
+            TaskPlan,
+            "fail_current",
+            side_effect=TaskPlanError("forced-local-state-error"),
+        ):
+            result = loop.run("fail transition")
+
+        self.assertFalse(result.success)
+        self.assertEqual(
+            result.message,
+            "任务失败状态转换异常：forced-local-state-error",
+        )
+        terminal_events = [
+            event for event in recorder.history()
+            if event.phase in ("final_answer", "run_failed")
+        ]
+        self.assertEqual(
+            [(event.phase, event.reason, event.task_id) for event in terminal_events],
+            [
+                ("final_answer", result.message, None),
+                ("run_failed", result.message, None),
+            ],
+        )
+        self.assertNotIn(
+            "task_failed",
+            [event.phase for event in recorder.history()],
+        )
 
     def test_complete_task_wrong_id_fails(self) -> None:
         from min_agent.agent_loop import AgentLoop
@@ -1005,7 +1161,7 @@ class AgentLoopV08BudgetTest(unittest.TestCase):
         from min_agent.context_builder import ContextBuilder
         from min_agent.tool_registry import ToolRegistry
         from min_agent.trace_recorder import TraceRecorder
-        from min_agent.types import AgentAction, AgentContext, TaskDefinition, ToolResult, ToolSpec
+        from min_agent.types import AgentAction, AgentContext, TaskArtifactDraft, TaskDefinition, ToolResult, ToolSpec
 
         class LongPlanModel:
             def __init__(self) -> None:
@@ -1025,11 +1181,11 @@ class AgentLoopV08BudgetTest(unittest.TestCase):
                     # 9 次工具调用，超过默认简单目标 8 轮预算
                     return AgentAction.tool_call("list_dir", {}, f"step {self._step}")
                 elif self._step == 11:
-                    return AgentAction.complete_task("task-1", "done", [1], "ok")
+                    return AgentAction.complete_task("task-1", "done", [1], "ok", task_artifact=TaskArtifactDraft("T1 产物", "ok"))
                 elif self._step == 12:
                     return AgentAction.tool_call("read_file", {"path": "x"}, "read")
                 elif self._step == 13:
-                    return AgentAction.complete_task("task-2", "done", [1], "ok")
+                    return AgentAction.complete_task("task-2", "done", [1], "ok", task_artifact=TaskArtifactDraft("T2 产物", "ok"))
                 else:
                     return AgentAction.final_answer("completed", "all done")
 

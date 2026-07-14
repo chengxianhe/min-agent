@@ -150,9 +150,10 @@ class TraceViewerSourceTest(unittest.TestCase):
         source = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
 
         self.assertIn("function terminalEvent", source)
+        self.assertIn("function shouldShowTerminalEvent", source)
         self.assertIn("function renderTaskCompletionItem", source)
         self.assertIn("function renderTaskCompletionDetail", source)
-        self.assertIn("任务完成", source)
+        self.assertIn("整次运行完成", source)
         self.assertIn("Run Completed", source)
         self.assertIn("run_completed", source)
         self.assertIn("run_failed", source)
@@ -162,7 +163,7 @@ class TraceViewerSourceTest(unittest.TestCase):
     def test_task_completion_nav_uses_display_index_not_raw_event_step(self) -> None:
         source = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
 
-        self.assertIn("const completionDisplayIndex = rounds.length + 1", source)
+        self.assertIn("rounds[rounds.length - 1].index + 1", source)
         self.assertIn("renderTaskCompletionItem(roundList, completion, completionDisplayIndex)", source)
         self.assertIn("function renderTaskCompletionItem(roundList, event, displayIndex)", source)
         self.assertIn("roundIndex.textContent = String(displayIndex)", source)
@@ -171,6 +172,38 @@ class TraceViewerSourceTest(unittest.TestCase):
         completion_end = source.index("function renderRoundDetail", completion_start)
         completion_body = source[completion_start:completion_end]
         self.assertNotIn("roundIndex.textContent = String(event.step)", completion_body)
+
+    def test_planned_rounds_only_include_events_for_selected_task(self) -> None:
+        source = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+
+        filter_start = source.index("function roundsForSelectedTask")
+        filter_end = source.index("function shouldShowTerminalEvent", filter_start)
+        filter_body = source[filter_start:filter_end]
+
+        self.assertIn("event.task_id === state.selectedTaskId", filter_body)
+        self.assertIn("return enrichRound({ ...round, events })", filter_body)
+
+        selected_start = source.index("function selectedRound")
+        selected_end = source.index("function runStartedEvent", selected_start)
+        selected_body = source[selected_start:selected_end]
+        self.assertIn("rounds = roundsForSelectedTask(rounds)", selected_body)
+
+    def test_terminal_result_is_attached_to_last_planned_task(self) -> None:
+        source = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+
+        self.assertIn("plan.definitions[plan.definitions.length - 1].task_id", source)
+        self.assertIn("shouldShowTerminalEvent(plan) ? terminalEvent() : null", source)
+        self.assertIn("state.selectedTaskId === lastTask.task_id", source)
+        self.assertIn("整次运行完成", source)
+
+    def test_planned_task_entry_uses_its_own_task_started_event(self) -> None:
+        source = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+
+        self.assertIn("function taskEntryEvent(plan)", source)
+        self.assertIn('event.phase === "task_started" && event.task_id === state.selectedTaskId', source)
+        self.assertIn("const entry = taskEntryEvent(plan)", source)
+        self.assertIn('title.textContent = isPlannedTaskEntry ? "任务开始" : "任务入口"', source)
+        self.assertIn('return ["Task Plan", "Task Started"]', source)
 
 
     def test_v0_5_viewer_handles_permission_phases(self) -> None:
@@ -619,6 +652,9 @@ class V08TraceViewerSourceTest(unittest.TestCase):
         self.assertIn('id="task-progress-text"', html)
         self.assertIn('id="task-list"', html)
         self.assertIn('class="task-list"', html)
+        panel = html[html.index('id="task-plan-panel"'):html.index('class="layout"')]
+        for artifact_id in ["task-artifact-panel", "task-artifact-title", "task-artifact-status", "task-artifact-body"]:
+            self.assertIn(artifact_id, panel)
 
     def test_selected_task_label_in_rounds_panel(self) -> None:
         html = (ROOT / "web" / "trace_viewer.html").read_text(encoding="utf-8")
@@ -637,6 +673,48 @@ class V08TraceViewerSourceTest(unittest.TestCase):
         self.assertIn("selectTask", js)
         self.assertIn("roundsForSelectedTask", js)
         self.assertIn("selectedTaskId", js)
+        for function in ["buildTaskArtifacts", "artifactForTask", "renderSelectedTaskArtifact", "formatArtifactEvidence"]:
+            self.assertIn(function, js)
+        self.assertIn("renderArtifactChips", js)
+        self.assertIn("artifact-flow", js)
+        self.assertIn("artifact-chip", js)
+
+    def test_v0_9_artifact_detail_matches_frozen_prototype_structure(self) -> None:
+        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        css = (ROOT / "web" / "trace_viewer.css").read_text(encoding="utf-8")
+
+        render_start = js.index("function renderSelectedTaskArtifact")
+        render_end = js.index("function selectTask", render_start)
+        render_body = js[render_start:render_end]
+
+        for token in [
+            "artifact-grid",
+            "artifact-section",
+            "artifact-content",
+            "artifact-evidence",
+            "evidence-list",
+            "artifact-flow",
+        ]:
+            self.assertIn(token, render_body)
+
+        self.assertIn(".task-plan-panel .artifact-grid", css)
+        self.assertIn("minmax(0, 1.4fr) minmax(280px, 0.8fr)", css)
+        self.assertIn(".task-plan-panel .artifact-section", css)
+        self.assertIn(".task-plan-panel .evidence-list", css)
+        self.assertNotIn(".artifact-content { grid-column: 1 / -1; }", css)
+
+    def test_v0_9_artifact_responsive_rules_are_scoped(self) -> None:
+        css = (ROOT / "web" / "trace_viewer.css").read_text(encoding="utf-8")
+
+        desktop_breakpoint = css.index("@media (max-width: 1050px)")
+        narrow_breakpoint = css.index("@media (max-width: 760px)", desktop_breakpoint)
+        desktop_rules = css[desktop_breakpoint:narrow_breakpoint]
+        narrow_rules = css[narrow_breakpoint:]
+
+        self.assertIn(".task-plan-panel .artifact-grid", desktop_rules)
+        self.assertIn("grid-template-columns: 1fr", desktop_rules)
+        self.assertIn(".task-plan-panel .artifact-flow", narrow_rules)
+        self.assertIn("grid-template-columns: 1fr", narrow_rules)
 
     def test_task_plan_css_classes_exist(self) -> None:
         css = (ROOT / "web" / "trace_viewer.css").read_text(encoding="utf-8")
@@ -645,6 +723,8 @@ class V08TraceViewerSourceTest(unittest.TestCase):
         self.assertIn(".task-card", css)
         self.assertIn(".task-list", css)
         self.assertIn(".selected-task-label", css)
+        self.assertIn(".artifact-flow", css)
+        self.assertIn(".artifact-chip", css)
 
     def test_css_custom_properties_for_task_states(self) -> None:
         css = (ROOT / "web" / "trace_viewer.css").read_text(encoding="utf-8")

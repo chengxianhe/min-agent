@@ -629,6 +629,50 @@ class CliCompositeScenarioTest(unittest.TestCase):
             ]
             self.assertEqual(len(perm_requests), 2)
 
+            artifacts = [event for event in record["events"] if event["phase"] == "task_artifact_created"]
+            self.assertEqual([event["task_id"] for event in artifacts], ["task-1", "task-2", "task-3", "task-4"])
+            for artifact_event in artifacts:
+                event_index = record["events"].index(artifact_event)
+                artifact = artifact_event["output"]["artifact"]
+                self.assertEqual(artifact["status"], "available")
+                self.assertEqual(artifact["created_at_step"], artifact_event["step"])
+                self.assertTrue(artifact_event["output"]["evidence_observations"])
+                next_event = record["events"][event_index + 1]
+                self.assertEqual(next_event["phase"], "task_completed")
+                self.assertEqual(next_event["task_id"], artifact_event["task_id"])
+
+            task4_context = next(
+                event for event in record["events"]
+                if event["phase"] == "context_built" and event.get("task_id") == "task-4"
+            )
+            inherited = task4_context["output"]["inherited_task_artifacts"]
+            self.assertEqual([item["task_id"] for item in inherited], ["task-1", "task-2", "task-3"])
+            self.assertEqual(task4_context["output"]["observations"], [])
+            self.assertEqual(task4_context["output"].get("selected_project_content", []), [])
+
+            artifact_by_task = {
+                event["task_id"]: event["output"]["artifact"]
+                for event in artifacts
+            }
+            self.assertIn(
+                artifact_by_task["task-2"]["content"],
+                content,
+            )
+            self.assertEqual(artifact_by_task["task-3"]["content"], fake_time)
+            self.assertIn(fake_time, content)
+
+            final_context = [
+                event for event in record["events"]
+                if event["phase"] == "context_built" and event.get("task_id") is None
+            ][-1]
+            self.assertIsNone(final_context["output"]["current_task_id"])
+            self.assertEqual(final_context["output"]["observations"], [])
+            self.assertEqual(final_context["output"].get("selected_project_content", []), [])
+            self.assertEqual(
+                [item["task_id"] for item in final_context["output"]["inherited_task_artifacts"]],
+                ["task-1", "task-2", "task-3", "task-4"],
+            )
+
     def test_middle_task_rejection_scenario(self) -> None:
         from min_agent.cli import main
 
@@ -672,9 +716,35 @@ class CliCompositeScenarioTest(unittest.TestCase):
         event_phases = phases(record)
         self.assertIn("task_failed", event_phases)
         self.assertIn("task_skipped", event_phases)
+        self.assertIn("task_artifact_missing", event_phases)
+
+        created = [
+            event for event in record["events"]
+            if event["phase"] == "task_artifact_created"
+        ]
+        missing = [
+            event for event in record["events"]
+            if event["phase"] == "task_artifact_missing"
+        ]
+        self.assertEqual([event["task_id"] for event in created], ["task-1", "task-2"])
+        self.assertEqual([event["task_id"] for event in missing], ["task-3", "task-4"])
+        self.assertEqual(missing[0]["output"]["inherited_task_ids"], ["task-1", "task-2"])
+        self.assertEqual(missing[1]["output"]["inherited_task_ids"], [])
+        for event in missing:
+            artifact = event["output"]["artifact"]
+            self.assertEqual(artifact["status"], "missing")
+            self.assertEqual(artifact["created_at_step"], event["step"])
+            self.assertTrue(artifact["missing_reason"])
 
         # 没有 tool_started(run_command)
         self.assertNotIn("run_command", tool_started_names(record))
+        self.assertNotIn("write_file", tool_started_names(record))
+        requested_tools = [
+            event["input"]["tool_name"]
+            for event in record["events"]
+            if event["phase"] == "permission_requested"
+        ]
+        self.assertEqual(requested_tools, ["run_command"])
 
         # summary.md 不应该存在
         summary_exists = (workspace / "summary.md").exists()
@@ -778,6 +848,11 @@ class CliCompositeScenarioTest(unittest.TestCase):
         self.assertNotIn("plan_created", event_phases)
         self.assertNotIn("task_started", event_phases)
         self.assertNotIn("task_completed", event_phases)
+        self.assertNotIn("task_artifact_created", event_phases)
+        self.assertNotIn("task_artifact_missing", event_phases)
+        for event in record["events"]:
+            if event["phase"] == "context_built":
+                self.assertNotIn("inherited_task_artifacts", event["output"])
 
     def test_multi_file_summary_no_plan_events(self) -> None:
         from min_agent.cli import main

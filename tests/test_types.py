@@ -159,6 +159,19 @@ class TaskSnapshotTest(unittest.TestCase):
         self.assertEqual(data["failure_reason"], "permission denied")
 
 
+class TaskArtifactV09Test(unittest.TestCase):
+    def test_runtime_artifact_and_draft_keep_trust_boundary(self) -> None:
+        from min_agent.types import AgentAction, TaskArtifact, TaskArtifactDraft
+
+        draft = TaskArtifactDraft("项目资料摘要", "summary text")
+        artifact = TaskArtifact("task-2", draft.title, draft.content, [1, 2], 12, "available")
+        action = AgentAction.complete_task("task-2", "reads succeeded", [1, 2], "criterion met", task_artifact=draft)
+
+        self.assertEqual(artifact.to_dict()["evidence_observation_indexes"], [1, 2])
+        self.assertEqual(action.to_dict()["task_artifact"], draft.to_dict())
+        self.assertNotIn("created_at_step", draft.to_dict())
+
+
 class AgentActionV08Test(unittest.TestCase):
     def test_create_plan_action(self) -> None:
         from min_agent.types import AgentAction, TaskDefinition
