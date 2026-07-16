@@ -9,13 +9,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class TraceViewerSourceTest(unittest.TestCase):
     def test_eventsource_error_does_not_override_terminal_status(self) -> None:
-        source = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        core = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
+        wrapper = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
 
-        self.assertIn("function isTerminalStatus", source)
-        self.assertIn("if (!isTerminalStatus(state.status))", source)
+        self.assertIn("function isTerminalStatus", core)
+        self.assertIn('!["completed", "failed", "interrupted"].includes(status)', wrapper)
 
     def test_step_detail_renders_model_call_sections(self) -> None:
-        source = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        source = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
 
         self.assertIn("function renderModelDecisionStep", source)
         self.assertIn("大模型返回 message.content", source)
@@ -23,7 +24,7 @@ class TraceViewerSourceTest(unittest.TestCase):
         self.assertIn("原始事件", source)
 
     def test_timeline_renders_agent_module_badges(self) -> None:
-        source = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        source = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
 
         self.assertIn("function moduleForPhase", source)
         self.assertIn("agent-module-badge", source)
@@ -45,7 +46,7 @@ class TraceViewerSourceTest(unittest.TestCase):
         self.assertLess(html.index('id="final-answer"'), html.index('id="round-list"'))
 
     def test_viewer_groups_events_by_agentic_loop_rounds(self) -> None:
-        source = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        source = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
 
         self.assertIn("selectedRoundId", source)
         self.assertIn("function buildRounds", source)
@@ -59,7 +60,7 @@ class TraceViewerSourceTest(unittest.TestCase):
         self.assertIn("llm_decision", source)
 
     def test_model_decision_details_remain_explainable(self) -> None:
-        source = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        source = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
 
         self.assertIn("function renderModelDecisionStep", source)
         self.assertIn("System Prompt", source)
@@ -71,7 +72,7 @@ class TraceViewerSourceTest(unittest.TestCase):
 
     def test_v0_4_does_not_add_agent_controls_or_external_assets(self) -> None:
         html = (ROOT / "web" / "trace_viewer.html").read_text(encoding="utf-8")
-        source = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        source = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
 
         forbidden_html = [
             "https://",
@@ -102,7 +103,7 @@ class TraceViewerSourceTest(unittest.TestCase):
     def test_v0_4_viewer_uses_prototype_hierarchy_classes(self) -> None:
         html = (ROOT / "web" / "trace_viewer.html").read_text(encoding="utf-8")
         css = (ROOT / "web" / "trace_viewer.css").read_text(encoding="utf-8")
-        source = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        source = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
 
         self.assertIn('class="summary-panel"', html)
         self.assertIn('class="context-panel original-request"', html)
@@ -119,7 +120,7 @@ class TraceViewerSourceTest(unittest.TestCase):
 
     def test_v0_4_viewer_explains_task_entry_and_round_flow(self) -> None:
         css = (ROOT / "web" / "trace_viewer.css").read_text(encoding="utf-8")
-        source = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        source = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
 
         self.assertIn("function runStartedEvent", source)
         self.assertIn("function renderTaskEntryItem", source)
@@ -136,7 +137,7 @@ class TraceViewerSourceTest(unittest.TestCase):
         self.assertIn(".flow-node", css)
 
     def test_task_entry_nav_uses_entry_marker_not_raw_event_step(self) -> None:
-        source = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        source = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
 
         self.assertIn('roundIndex.textContent = "0"', source)
 
@@ -147,7 +148,7 @@ class TraceViewerSourceTest(unittest.TestCase):
 
     def test_v0_4_viewer_explains_task_completion_separately(self) -> None:
         css = (ROOT / "web" / "trace_viewer.css").read_text(encoding="utf-8")
-        source = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        source = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
 
         self.assertIn("function terminalEvent", source)
         self.assertIn("function shouldShowTerminalEvent", source)
@@ -161,7 +162,7 @@ class TraceViewerSourceTest(unittest.TestCase):
         self.assertIn(".task-completion", css)
 
     def test_task_completion_nav_uses_display_index_not_raw_event_step(self) -> None:
-        source = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        source = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
 
         self.assertIn("rounds[rounds.length - 1].index + 1", source)
         self.assertIn("renderTaskCompletionItem(roundList, completion, completionDisplayIndex)", source)
@@ -174,7 +175,7 @@ class TraceViewerSourceTest(unittest.TestCase):
         self.assertNotIn("roundIndex.textContent = String(event.step)", completion_body)
 
     def test_planned_rounds_only_include_events_for_selected_task(self) -> None:
-        source = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        source = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
 
         filter_start = source.index("function roundsForSelectedTask")
         filter_end = source.index("function shouldShowTerminalEvent", filter_start)
@@ -189,7 +190,7 @@ class TraceViewerSourceTest(unittest.TestCase):
         self.assertIn("rounds = roundsForSelectedTask(rounds)", selected_body)
 
     def test_terminal_result_is_attached_to_last_planned_task(self) -> None:
-        source = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        source = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
 
         self.assertIn("plan.definitions[plan.definitions.length - 1].task_id", source)
         self.assertIn("shouldShowTerminalEvent(plan) ? terminalEvent() : null", source)
@@ -197,7 +198,7 @@ class TraceViewerSourceTest(unittest.TestCase):
         self.assertIn("整次运行完成", source)
 
     def test_planned_task_entry_uses_its_own_task_started_event(self) -> None:
-        source = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        source = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
 
         self.assertIn("function taskEntryEvent(plan)", source)
         self.assertIn('event.phase === "task_started" && event.task_id === state.selectedTaskId', source)
@@ -207,7 +208,7 @@ class TraceViewerSourceTest(unittest.TestCase):
 
 
     def test_v0_5_viewer_handles_permission_phases(self) -> None:
-        source = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        source = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
 
         self.assertIn("permission_requested", source)
         self.assertIn("permission_resolved", source)
@@ -218,7 +219,7 @@ class TraceViewerSourceTest(unittest.TestCase):
         self.assertIn("event.input?.tool_name", source)
 
     def test_v0_5_permission_events_do_not_start_rounds(self) -> None:
-        source = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        source = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
 
         build_rounds_start = source.index("function buildRounds")
         build_rounds_end = source.index("function enrichRound", build_rounds_start)
@@ -249,7 +250,7 @@ class TraceViewerSourceTest(unittest.TestCase):
             self.assertNotIn(phase, starting_phases)
 
     def test_v0_5_preserves_existing_v4_structure_tokens(self) -> None:
-        source = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        source = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
         html = (ROOT / "web" / "trace_viewer.html").read_text(encoding="utf-8")
         css = (ROOT / "web" / "trace_viewer.css").read_text(encoding="utf-8")
 
@@ -273,7 +274,7 @@ class TraceViewerSourceTest(unittest.TestCase):
 
     def test_v0_5_does_not_add_approve_reject_buttons(self) -> None:
         html = (ROOT / "web" / "trace_viewer.html").read_text(encoding="utf-8")
-        source = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        source = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
 
         forbidden = [
             "onclick=\"approve",
@@ -292,7 +293,7 @@ class TraceViewerSourceTest(unittest.TestCase):
 
 class V06TraceViewerSourceTest(unittest.TestCase):
     def test_summary_grid_replaces_observations_with_context_builds(self) -> None:
-        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        js = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
         css = (ROOT / "web" / "trace_viewer.css").read_text(encoding="utf-8")
 
         # buildRunSummary should have contextBuilds, not observations:
@@ -319,7 +320,7 @@ class V06TraceViewerSourceTest(unittest.TestCase):
         self.assertIn("grid-template-columns: repeat(5, minmax(0, 1fr))", css)
 
     def test_render_context_built_has_seven_source_cards(self) -> None:
-        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        js = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
 
         # renderContextBuiltStep must exist
         self.assertIn("function renderContextBuiltStep", js)
@@ -370,7 +371,7 @@ class V06TraceViewerSourceTest(unittest.TestCase):
         self.assertIn("grid-column: auto", media_body)
 
     def test_context_source_cards_render_status_and_raw_details(self) -> None:
-        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        js = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
 
         self.assertIn("context-source-status", js)
         self.assertIn("priority", js)
@@ -386,7 +387,7 @@ class V06TraceViewerSourceTest(unittest.TestCase):
         self.assertNotIn("innerHTML", js)
 
     def test_task_entry_uses_zero_index_once(self) -> None:
-        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        js = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
 
         # renderTaskEntryItem should use "0"
         entry_start = js.index("function renderTaskEntryItem")
@@ -405,7 +406,7 @@ class V06TraceViewerSourceTest(unittest.TestCase):
         self.assertNotIn('"round-0"', js)
 
     def test_context_change_is_computed(self) -> None:
-        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        js = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
 
         self.assertIn("function buildContextChange", js)
 
@@ -419,7 +420,7 @@ class V06TraceViewerSourceTest(unittest.TestCase):
         self.assertIn("首轮，无前序上下文", change_body)
 
     def test_flow_uses_context_build_label(self) -> None:
-        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        js = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
 
         # buildFlowItems context_built branch uses "Context Build"
         flow_start = js.index("function buildFlowItems")
@@ -452,7 +453,7 @@ class V06TraceViewerSourceTest(unittest.TestCase):
     def test_key_dom_ids_present(self) -> None:
         html = (ROOT / "web" / "trace_viewer.html").read_text(encoding="utf-8")
         css = (ROOT / "web" / "trace_viewer.css").read_text(encoding="utf-8")
-        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        js = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
 
         # HTML key ids
         for id_name in ["run-summary", "original-request", "final-answer", "round-list", "round-detail"]:
@@ -484,7 +485,7 @@ class V06TraceViewerSourceTest(unittest.TestCase):
 
     def test_build_context_change_handles_object_entries(self) -> None:
         """兼容开发期旧记录中的 {path, preview} 条目。"""
-        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        js = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
 
         path_start = js.index("function selectedProjectPath")
         path_end = js.index("function buildSelectedProjectContentText", path_start)
@@ -496,7 +497,7 @@ class V06TraceViewerSourceTest(unittest.TestCase):
         self.assertIn("entry.path", path_body)
         self.assertIn('typeof entry === "object"', path_body)
         self.assertIn("previousEntries.map(selectedProjectPath)", change_body)
-        self.assertIn("currentFiles\n    .map(selectedProjectPath)", change_body)
+        self.assertIn("currentFiles\n        .map(selectedProjectPath)", change_body)
 
         # 不应再用字符串比较
         self.assertNotIn("!previousFiles.has(path)", change_body.replace(
@@ -504,7 +505,7 @@ class V06TraceViewerSourceTest(unittest.TestCase):
 
     def test_project_content_uses_full_read_file_observation_content(self) -> None:
         """Selected Project Content 必须展示 read_file 的完整正文，而不是 200 字预览。"""
-        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        js = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
 
         self.assertIn("function buildSelectedProjectContentText", js)
         helper_start = js.index("function buildSelectedProjectContentText")
@@ -526,15 +527,15 @@ class V07TraceViewerSourceTest(unittest.TestCase):
     """V0.7: command step rendering without regressing V0.4–V0.6."""
 
     def test_build_display_steps_function_exists(self) -> None:
-        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        js = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
         self.assertIn("function buildDisplaySteps", js)
 
     def test_render_command_step_function_exists(self) -> None:
-        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        js = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
         self.assertIn("function renderCommandStep", js)
 
     def test_is_run_command_start_helper_exists(self) -> None:
-        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        js = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
         self.assertIn("isRunCommandStart", js)
 
     def test_command_step_css_classes_present(self) -> None:
@@ -543,7 +544,7 @@ class V07TraceViewerSourceTest(unittest.TestCase):
         self.assertIn(".command-label", css)
 
     def test_command_labels_in_source(self) -> None:
-        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        js = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
         self.assertIn("预定义动作", js)
         self.assertIn("实际命令", js)
         self.assertIn("工作目录", js)
@@ -553,7 +554,7 @@ class V07TraceViewerSourceTest(unittest.TestCase):
         self.assertIn("stderr", js)
 
     def test_build_flow_items_still_renders_tool_run_command(self) -> None:
-        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        js = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
         flow_start = js.index("function buildFlowItems")
         flow_end = js.index("function createContextSourceCard", flow_start)
         flow_body = js[flow_start:flow_end]
@@ -561,7 +562,7 @@ class V07TraceViewerSourceTest(unittest.TestCase):
         self.assertIn('event.input?.tool_name', flow_body)
 
     def test_all_seven_v06_context_source_tokens_remain(self) -> None:
-        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        js = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
         expected_sources = [
             "goal",
             "workspace-config",
@@ -575,26 +576,26 @@ class V07TraceViewerSourceTest(unittest.TestCase):
             self.assertIn(f'source: "{source}"', js)
 
     def test_no_approve_reject_input_in_source(self) -> None:
-        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        js = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
         forbidden = ["approveButton", "rejectButton", "command-input", "id=\"approve", "id=\"reject"]
         for token in forbidden:
             self.assertNotIn(token, js)
 
     def test_build_display_steps_pairs_command_events(self) -> None:
-        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        js = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
         self.assertIn("tool_started", js)
         self.assertIn("tool_finished", js)
         # buildDisplaySteps should reference kind: "command"
         self.assertIn('"command"', js)
 
     def test_command_step_uses_textcontent_not_innerhtml(self) -> None:
-        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        js = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
         # The whole file should not use innerHTML (V0.6 rule, still applies)
         self.assertNotIn("innerHTML", js)
 
     def test_v06_v05_v04_preservation(self) -> None:
         """Cross-check: V0.4–V0.6 tokens must still be present."""
-        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        js = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
         html = (ROOT / "web" / "trace_viewer.html").read_text(encoding="utf-8")
         css = (ROOT / "web" / "trace_viewer.css").read_text(encoding="utf-8")
 
@@ -666,7 +667,7 @@ class V08TraceViewerSourceTest(unittest.TestCase):
         self.assertIn("hidden", rounds_section_before)
 
     def test_task_plan_js_functions_exist(self) -> None:
-        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        js = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
 
         self.assertIn("buildTaskPlan", js)
         self.assertIn("renderTaskPlan", js)
@@ -679,8 +680,15 @@ class V08TraceViewerSourceTest(unittest.TestCase):
         self.assertIn("artifact-flow", js)
         self.assertIn("artifact-chip", js)
 
+    def test_task_plan_progress_value_tracks_completed_tasks(self) -> None:
+        js = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
+
+        self.assertIn("const progressValue = document.querySelector(\"#task-progress-value\")", js)
+        self.assertIn("const progressPercent = plan.totalCount ? (plan.completedCount / plan.totalCount) * 100 : 0", js)
+        self.assertIn("progressValue.style.width = `${progressPercent}%`", js)
+
     def test_v0_9_artifact_detail_matches_frozen_prototype_structure(self) -> None:
-        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        js = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
         css = (ROOT / "web" / "trace_viewer.css").read_text(encoding="utf-8")
 
         render_start = js.index("function renderSelectedTaskArtifact")
@@ -734,7 +742,7 @@ class V08TraceViewerSourceTest(unittest.TestCase):
 
     def test_no_forms_or_approve_reject_controls(self) -> None:
         html = (ROOT / "web" / "trace_viewer.html").read_text(encoding="utf-8")
-        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        js = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
 
         forbidden_html = ["<form", "<input", "<select", "<textarea", "approve", "reject", "retry", "onclick=\"edit"]
         for token in forbidden_html:
@@ -745,7 +753,7 @@ class V08TraceViewerSourceTest(unittest.TestCase):
             self.assertNotIn(token, js)
 
     def test_v07_v06_v05_v04_preservation(self) -> None:
-        js = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+        js = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
         html = (ROOT / "web" / "trace_viewer.html").read_text(encoding="utf-8")
         css = (ROOT / "web" / "trace_viewer.css").read_text(encoding="utf-8")
 
@@ -766,3 +774,23 @@ class V08TraceViewerSourceTest(unittest.TestCase):
         for token in v0_7_tokens:
             found = token in js or token in html or token in css
             self.assertTrue(found, f"V0.7 token '{token}' no longer present")
+
+
+class TraceViewerCoreContractTest(unittest.TestCase):
+    def test_core_exposes_reusable_instance_api(self) -> None:
+        source = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
+
+        self.assertIn("window.MinAgentTraceViewer = { create }", source)
+        for member in ("loadRun", "applyEvent", "setConnectionStatus", "reset", "destroy"):
+            self.assertIn(member, source)
+        self.assertIn("const document = {", source)
+        self.assertIn("querySelector: root.querySelector.bind(root)", source)
+
+    def test_legacy_wrapper_owns_only_sse_connection(self) -> None:
+        wrapper = (ROOT / "web" / "trace_viewer.js").read_text(encoding="utf-8")
+
+        self.assertIn('window.MinAgentTraceViewer.create({ root })', wrapper)
+        self.assertIn('new EventSource("/events")', wrapper)
+        self.assertNotIn("function buildTaskPlan", wrapper)
+        self.assertNotIn("function buildRounds", wrapper)
+        self.assertNotIn("function renderTaskPlan", wrapper)

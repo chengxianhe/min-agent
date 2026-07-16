@@ -53,6 +53,48 @@ class ProjectTestingRulesTest(unittest.TestCase):
         for token in expected_tokens:
             self.assertIn(token, content)
 
+    def test_agents_documents_v1_web_agent_testing_rules(self) -> None:
+        content = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+
+        expected_tokens = [
+            "## V1.0 边界",
+            "## V1.0 Web Agent 规则",
+            "Web API 单元测试使用标准库本地 HTTP 客户端",
+            "Key 泄漏扫描属于 V1.0 验收",
+        ]
+        for token in expected_tokens:
+            self.assertIn(token, content)
+
+    def test_public_readme_documents_first_run_and_data_boundaries(self) -> None:
+        content = (ROOT / "README.md").read_text(encoding="utf-8")
+
+        expected_tokens = [
+            "## 快速开始",
+            "Python 3.10",
+            "--workspace examples/workspace",
+            "## Agent 如何运行",
+            "## Fake 与 DeepSeek",
+            "## 数据与安全边界",
+            "runs/*.json",
+            "## License",
+        ]
+        for token in expected_tokens:
+            self.assertIn(token, content)
+
+    def test_ci_covers_supported_os_and_python_versions(self) -> None:
+        content = (ROOT / ".github" / "workflows" / "tests.yml").read_text(
+            encoding="utf-8"
+        )
+
+        expected_tokens = [
+            "ubuntu-latest",
+            "macos-latest",
+            'python-version: ["3.10", "3.12"]',
+            "python -m unittest discover -s tests",
+        ]
+        for token in expected_tokens:
+            self.assertIn(token, content)
+
 
 if __name__ == "__main__":
     unittest.main()

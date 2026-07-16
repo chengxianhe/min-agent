@@ -15,6 +15,9 @@ class ProjectStructureTest(unittest.TestCase):
         required_paths = [
             "AGENTS.md",
             ".gitignore",
+            ".github/workflows/tests.yml",
+            "CHANGELOG.md",
+            "LICENSE",
             "README.md",
             "pyproject.toml",
             "src/min_agent/__init__.py",
@@ -39,6 +42,8 @@ class ProjectStructureTest(unittest.TestCase):
             "web/trace_viewer.css",
             "web/trace_viewer.js",
             "runs/.gitkeep",
+            "docs/assets/v1.0/web-agent-overview.png",
+            "docs/architecture.md",
             "docs/runbook.md",
         ]
 

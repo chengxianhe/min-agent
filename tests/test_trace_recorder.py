@@ -116,3 +116,33 @@ class TraceRecorderV09Test(unittest.TestCase):
         event = recorder.emit("run_started", "running", "start")
         self.assertEqual(event.step, 1)
         self.assertEqual(recorder.next_step(), 2)
+
+
+class TraceRecorderV10Test(unittest.TestCase):
+    def test_save_records_explicit_decision_model_metadata(self) -> None:
+        from min_agent.trace_recorder import TraceRecorder
+
+        with tempfile.TemporaryDirectory() as tmp:
+            recorder = TraceRecorder(
+                user_goal="goal",
+                workspace="workspace",
+                run_id="run-1",
+                decision_model="fake",
+            )
+            path = recorder.save(Path(tmp), status="completed")
+            data = json.loads(path.read_text(encoding="utf-8"))
+
+        self.assertEqual(data["decision_model"], "fake")
+        self.assertIn("started_at", data)
+        self.assertIn("ended_at", data)
+
+    def test_save_uses_unknown_for_legacy_constructor(self) -> None:
+        from min_agent.trace_recorder import TraceRecorder
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = TraceRecorder("goal", "workspace", run_id="run-1").save(
+                Path(tmp), status="completed"
+            )
+            data = json.loads(path.read_text(encoding="utf-8"))
+
+        self.assertEqual(data["decision_model"], "unknown")

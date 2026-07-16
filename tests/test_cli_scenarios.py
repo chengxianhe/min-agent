@@ -61,6 +61,7 @@ class CliScenarioTest(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(record["status"], "completed")
+        self.assertEqual(record["decision_model"], "fake")
         self.assertIn("run_started", phases(record))
         self.assertIn("context_built", phases(record))
         self.assertIn("llm_decision", phases(record))

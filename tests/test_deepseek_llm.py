@@ -992,6 +992,20 @@ class DeepSeekLLMV08PromptTest(unittest.TestCase):
 
         self.assertIn("2–5", system_prompt)
 
+    def test_system_prompt_keeps_source_read_and_answer_in_one_task(self) -> None:
+        from min_agent.deepseek_llm import DeepSeekLLM
+
+        llm = DeepSeekLLM(
+            client=StubClient('{"kind":"final_answer","message":"ok","reason":"done","success":true}'),
+            model="deepseek-v4-flash",
+        )
+
+        system_prompt = llm._system_prompt()
+
+        self.assertIn('"read project.md and summarize it" is one user outcome', system_prompt)
+        self.assertIn("Do not create a task whose only work is transforming inherited_task_artifacts", system_prompt)
+        self.assertIn("When current_task_id is present, final_answer is forbidden", system_prompt)
+
     def test_system_prompt_defines_v0_9_artifact_boundaries(self) -> None:
         from min_agent.deepseek_llm import DeepSeekLLM
 
@@ -1070,6 +1084,8 @@ class DeepSeekLLMV08PromptTest(unittest.TestCase):
             ["task-1"],
         )
         self.assertIn("Act only on current_task_id", payload["task_instruction"])
+        self.assertIn("Do NOT return create_plan or final_answer", payload["task_instruction"])
+        self.assertEqual(payload["output_contract"]["allowed_kinds"], ["complete_task", "tool_call"])
 
     def test_completed_plan_prompt_requires_artifact_backed_final_answer(self) -> None:
         from min_agent.deepseek_llm import DeepSeekLLM
@@ -1105,6 +1121,7 @@ class DeepSeekLLMV08PromptTest(unittest.TestCase):
         self.assertIn("Return final_answer", payload["task_instruction"])
         self.assertIn("based only on inherited_task_artifacts", payload["task_instruction"])
         self.assertNotIn("nonexistent current task", payload["task_instruction"])
+        self.assertEqual(payload["output_contract"]["allowed_kinds"], ["final_answer"])
 
     def test_simple_user_prompt_omits_planned_artifact_fields(self) -> None:
         from min_agent.deepseek_llm import DeepSeekLLM

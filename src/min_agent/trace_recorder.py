@@ -19,10 +19,17 @@ def now_iso() -> str:
 
 
 class TraceRecorder:
-    def __init__(self, user_goal: str, workspace: str, run_id: str | None = None) -> None:
+    def __init__(
+        self,
+        user_goal: str,
+        workspace: str,
+        run_id: str | None = None,
+        decision_model: str | None = None,
+    ) -> None:
         self.run_id = run_id or datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8]
         self.user_goal = user_goal
         self.workspace = workspace
+        self.decision_model = decision_model if decision_model in {"fake", "deepseek"} else "unknown"
         self.started_at = now_iso()
         self.ended_at: str | None = None
         self.events: list[TraceEvent] = []
@@ -88,6 +95,7 @@ class TraceRecorder:
             "status": status,
             "user_goal": self.user_goal,
             "workspace": self.workspace,
+            "decision_model": self.decision_model,
             "started_at": self.started_at,
             "ended_at": self.ended_at,
             "events": events,

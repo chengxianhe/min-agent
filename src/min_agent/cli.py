@@ -8,19 +8,17 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from min_agent.agent_loop import AgentLoop
-from min_agent.command_registry import build_default_command_registry
 from min_agent.context_builder import ContextBuilder
 from min_agent.context_loader import ContextLoader
 from min_agent.decision_model import DecisionModel
 from min_agent.deepseek_client import DeepSeekClient
 from min_agent.deepseek_llm import DeepSeekLLM
 from min_agent.fake_llm import FakeLLM
-from min_agent.tool_registry import ToolRegistry
-from min_agent.tools.command import run_command
-from min_agent.tools.workspace import ensure_workspace, list_dir, read_file, write_file
+from min_agent.runtime_factory import build_tool_registry
+from min_agent.tools.workspace import ensure_workspace
 from min_agent.trace_recorder import TraceRecorder
 from min_agent.trace_server import TraceServer
-from min_agent.types import AgentAction, ToolSpec
+from min_agent.types import AgentAction
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -77,50 +75,6 @@ def build_decision_model(args: argparse.Namespace) -> tuple[DecisionModel | None
     return None, f"Unknown decision model: {args.decision_model}"
 
 
-def build_tool_registry(workspace: Path) -> ToolRegistry:
-    command_registry = build_default_command_registry()
-    registry = ToolRegistry()
-    registry.register(
-        ToolSpec(
-            name="read_file",
-            description="Read a UTF-8 text file inside the configured workspace.",
-            args_schema={"path": "string"},
-            requires_permission=False,
-        ),
-        lambda tool_args: read_file(workspace, tool_args),
-    )
-    registry.register(
-        ToolSpec(
-            name="list_dir",
-            description="List files and directories inside the configured workspace.",
-            args_schema={"path": "string"},
-            requires_permission=False,
-        ),
-        lambda tool_args: list_dir(workspace, tool_args),
-    )
-    registry.register(
-        ToolSpec(
-            name="write_file",
-            description="Create a new UTF-8 text file inside the configured workspace after approval.",
-            args_schema={"path": "string", "content": "string", "mode": "string"},
-            requires_permission=True,
-        ),
-        lambda tool_args: write_file(workspace, tool_args),
-    )
-    registry.register(
-        ToolSpec(
-            name="run_command",
-            description="Run one predefined local command action after approval.",
-            args_schema={"command_id": "string"},
-            requires_permission=True,
-        ),
-        lambda tool_args: run_command(workspace, tool_args, command_registry),
-        validator=command_registry.validate_args,
-        permission_describer=lambda tool_args: command_registry.permission_details(tool_args, workspace),
-    )
-    return registry
-
-
 def preview_text(value: str, limit: int = 200) -> str:
     return value if len(value) <= limit else value[:limit] + "..."
 
@@ -160,7 +114,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Error: {model_error}")
         return 2
 
-    recorder = TraceRecorder(user_goal=args.goal, workspace=str(workspace))
+    recorder = TraceRecorder(
+        user_goal=args.goal,
+        workspace=str(workspace),
+        decision_model=args.decision_model,
+    )
     server: TraceServer | None = None
 
     try:

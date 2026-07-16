@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Min Agent</title>
+  <link rel="stylesheet" href="./trace_viewer.css">
+  <link rel="stylesheet" href="./web_agent.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-mark">M</span>
+      <span>Min Agent</span>
+    </div>
+    <div class="header-actions">
+      <nav class="app-nav" aria-label="主导航">
+        <button class="nav-button active" type="button" data-route="new">发起任务</button>
+        <button class="nav-button" type="button" data-route="trace">
+          <span id="nav-run-dot" class="run-dot"></span>
+          过程查看
+        </button>
+        <button class="nav-button" type="button" data-route="history">历史运行</button>
+      </nav>
+      <button
+        id="pending-permission-button"
+        class="pending-permission-button"
+        type="button"
+        hidden
+      >待审批 1</button>
+    </div>
+  </header>
+
+  <main id="new-page" class="page" data-page="new">
+    <header class="page-heading">
+      <p class="eyebrow">Local Web Agent</p>
+      <h1>发起一次新的 Agent 任务</h1>
+      <p>选择决策模型、描述目标，任务提交后会进入 Trace Viewer 展示真实执行过程。Workspace 由服务启动参数固定，页面不能修改。</p>
+    </header>
+
+    <div class="launch-layout">
+      <section class="card launch-card">
+        <h2 class="section-title">任务配置</h2>
+        <p class="section-copy">页面只提交目标和本次运行凭据；模型决策、工具执行与权限边界仍由本地运行时负责。</p>
+
+        <div class="field">
+          <div class="field-label">
+            <span>Workspace</span>
+            <span class="field-hint">服务启动时固定</span>
+          </div>
+          <div class="workspace-display">
+            <code id="workspace-value"></code>
+            <span class="locked-badge">Locked</span>
+          </div>
+        </div>
+
+        <fieldset class="field model-field">
+          <legend class="field-label">
+            <span>决策模型</span>
+            <span class="field-hint">按本次运行选择</span>
+          </legend>
+          <div class="model-options">
+            <div class="model-option">
+              <input id="model-fake" type="radio" name="model" value="fake" checked>
+              <label for="model-fake">
+                <span class="model-name"><span class="model-icon">F</span>Fake 模式</span>
+                <p>离线、确定性，用于演示标准机制路径，不读取 DeepSeek Key。</p>
+              </label>
+            </div>
+            <div class="model-option">
+              <input id="model-deepseek" type="radio" name="model" value="deepseek">
+              <label for="model-deepseek">
+                <span class="model-name"><span class="model-icon">D</span>DeepSeek 模式</span>
+                <p>真实模型决定下一步，工具仍只能通过本地 Tool Registry 执行。</p>
+              </label>
+            </div>
+          </div>
+
+          <section id="key-panel" class="key-panel" hidden>
+            <div class="field-label">
+              <span>DeepSeek API Key</span>
+              <span id="key-status-text" class="field-hint">未配置</span>
+            </div>
+            <div id="key-input-row" class="key-row">
+              <input
+                id="deepseek-key"
+                class="text-input"
+                type="password"
+                autocomplete="off"
+                placeholder="请输入本次服务使用的 Key"
+              >
+              <button id="configure-key" class="secondary-button" type="button">本次服务使用</button>
+            </div>
+            <div id="configured-key-row" class="status-row" hidden>
+              <span class="key-status">已在服务内存中配置</span>
+              <button id="clear-key" class="secondary-button" type="button">清除 Key</button>
+            </div>
+            <p class="key-note">Key 仅保存在当前服务进程内存中。DeepSeek 模式会把模型上下文和相关文件内容发送到所配置的模型服务。</p>
+          </section>
+        </fieldset>
+
+        <div class="field">
+          <label class="field-label" for="goal-input">
+            <span>任务目标</span>
+            <span id="goal-count" class="field-hint">0 / 1000</span>
+          </label>
+          <textarea
+            id="goal-input"
+            class="goal-input"
+            maxlength="1000"
+            placeholder="可以直接输入目标，或从右侧选择一个标准演示"
+          ></textarea>
+        </div>
+
+        <footer class="launch-footer">
+          <p>同一时间只允许一个任务运行。提交成功后将自动进入过程查看。</p>
+          <button id="start-run" class="primary-button start-button" type="button">开始运行 →</button>
+        </footer>
+      </section>
+
+      <aside class="side-stack">
+        <section class="card side-card">
+          <div class="status-row">
+            <h2 class="section-title">服务状态</h2>
+            <span id="service-status" class="status-pill">Ready</span>
+          </div>
+          <ul class="mini-list">
+            <li><span class="mini-index">1</span><span>本地服务仅监听 <code>127.0.0.1</code>。</span></li>
+            <li><span class="mini-index">2</span><span>Workspace 固定，页面不能扩大文件访问范围。</span></li>
+            <li><span class="mini-index">3</span><span>危险工具必须经过当前运行的权限申请。</span></li>
+          </ul>
+        </section>
+
+        <section id="current-run-card" class="card side-card" hidden>
+          <div class="status-row">
+            <h2 class="section-title">当前运行</h2>
+            <span id="current-run-status" class="status-pill running">Running</span>
+          </div>
+          <p id="current-run-goal" class="section-copy current-run-goal"></p>
+          <button class="secondary-button" type="button" data-route="trace">进入过程查看</button>
+        </section>
+
+        <section class="card side-card">
+          <h2 class="section-title">标准演示</h2>
+          <p class="section-copy">点击后只会填入任务目标，不会自动运行。</p>
+          <ol class="demo-list">
+            <li>
+              <button
+                class="demo-preset"
+                type="button"
+                data-preset-goal="请阅读这个工作区里的资料，并总结这个 demo 是怎么工作的"
+              >
+                <span class="mini-index">A</span>
+                <span><strong>观察最小循环</strong><small>目录发现、文件读取、最终回答</small></span>
+              </button>
+            </li>
+            <li>
+              <button
+                class="demo-preset"
+                type="button"
+                data-preset-goal="请阅读 project.md 并生成 summary.md"
+              >
+                <span class="mini-index">B</span>
+                <span><strong>体验写文件权限</strong><small>批准或拒绝创建 summary.md</small></span>
+              </button>
+            </li>
+            <li>
+              <button
+                class="demo-preset"
+                type="button"
+                data-preset-goal="阅读 workspace 中的项目资料，获取当前时间，并生成一份带时间的 summary.md。"
+              >
+                <span class="mini-index">C</span>
+                <span><strong>观察复合任务</strong><small>计划、任务产物和跨任务传递</small></span>
+              </button>
+            </li>
+          </ol>
+        </section>
+      </aside>
+    </div>
+  </main>
+
+  <main id="trace-page" class="viewer-shell" data-page="trace" hidden>
+    <section data-trace-viewer-root class="shell">
+      <header class="status">
+        <div>
+          <p class="eyebrow">Min Agent Trace Viewer</p>
+          <h1 id="current-title">等待任务开始</h1>
+        </div>
+        <span id="run-status" class="badge">waiting</span>
+      </header>
+      <section class="context-panel original-request">
+        <h2>原始需求</h2>
+        <p id="original-request">等待任务开始。</p>
+        <div id="request-run-context" class="request-run-context" aria-label="本次运行信息">
+          <span class="request-context-tag">模型 <strong id="request-model">—</strong></span>
+          <span class="request-context-tag">Workspace <code id="request-workspace">—</code></span>
+        </div>
+      </section>
+      <section class="summary-panel" aria-label="Run summary">
+        <div id="run-summary" class="run-summary-grid"></div>
+      </section>
+      <section class="context-panel result">
+        <h2>最终结果</h2>
+        <p id="final-answer">任务完成后展示最终回答。</p>
+      </section>
+      <section id="task-plan-panel" class="task-plan-panel" hidden>
+        <div class="task-plan-heading">
+          <div>
+            <h2>任务计划</h2>
+            <p>固定顺序执行；点击任务同时查看主产物和该任务内部 Agentic Loop。</p>
+          </div>
+          <div class="task-progress">
+            <strong id="task-progress-text"></strong>
+            <div class="progress-track"><div id="task-progress-value" class="progress-value"></div></div>
+          </div>
+        </div>
+        <ol id="task-list" class="task-list"></ol>
+        <section id="task-artifact-panel" class="task-artifact-panel" aria-live="polite">
+          <div class="task-artifact-heading">
+            <div>
+              <h3 id="task-artifact-title">所选任务产物</h3>
+              <p>查看主产物、当前任务证据、继承来源和后续流向。</p>
+            </div>
+            <span id="task-artifact-status" class="task-artifact-status">waiting</span>
+          </div>
+          <div id="task-artifact-body" class="task-artifact-body"></div>
+        </section>
+      </section>
+      <section class="layout" aria-label="Agentic loop trace">
+        <nav class="rounds-panel" aria-label="执行轮次">
+          <div class="panel-heading">
+            <h2>执行轮次</h2>
+            <p>按 Agentic Loop 分组</p>
+          </div>
+          <p id="selected-task-label" class="selected-task-label" hidden></p>
+          <ol id="round-list" class="round-list"><li class="empty">等待 Trace 事件...</li></ol>
+        </nav>
+        <aside class="detail">
+          <div class="panel-heading">
+            <h2>轮次详情</h2>
+            <p>查看本轮每一步的输入、输出和原始事件</p>
+          </div>
+          <div id="round-detail" class="round-detail">暂无事件。</div>
+        </aside>
+      </section>
+    </section>
+  </main>
+
+  <main id="history-page" class="page" data-page="history" hidden>
+    <header class="page-heading">
+      <p class="eyebrow">Saved Run Records</p>
+      <h1>历史运行</h1>
+      <p>只读加载已经保存的 run record。历史运行不能审批权限、重新执行、删除或修改。</p>
+    </header>
+    <div class="history-layout">
+      <section class="card"><ol id="history-list" class="history-list"></ol></section>
+      <section id="history-detail" class="card history-detail">
+        <p class="eyebrow">Selected Run</p>
+        <h2 id="history-title">选择一条历史运行</h2>
+        <p id="history-description">选择已保存的 run record 后，可查看概要并进入完整只读回放。</p>
+        <div class="history-facts">
+          <div class="history-fact"><strong id="history-model">—</strong><span>Decision Model</span></div>
+          <div class="history-fact"><strong id="history-status">—</strong><span>Run Status</span></div>
+          <div class="history-fact"><strong id="history-tasks">—</strong><span>Tasks</span></div>
+        </div>
+        <button id="replay-run" class="primary-button" type="button" disabled>查看完整过程 →</button>
+      </section>
+    </div>
+  </main>
+
+  <div id="permission-backdrop" class="drawer-backdrop" inert></div>
+  <aside
+    id="permission-drawer"
+    class="permission-drawer"
+    aria-labelledby="permission-title"
+    aria-hidden="true"
+    inert
+  >
+    <div class="drawer-heading">
+      <div>
+        <p class="eyebrow">Permission Required</p>
+        <h2 id="permission-title">需要你的批准</h2>
+        <p>这是当前活动运行的权限申请。历史回放不能产生或处理权限。</p>
+      </div>
+      <button id="close-permission" class="icon-button" type="button" aria-label="关闭权限抽屉">×</button>
+    </div>
+    <div class="permission-type">
+      <span class="permission-symbol">›_</span>
+      <div><strong id="permission-tool">—</strong><span id="permission-run">当前运行</span></div>
+    </div>
+    <section class="permission-detail"><strong>申请原因</strong><p id="permission-reason"></p></section>
+    <section class="permission-detail"><strong>工作目录</strong><p id="permission-workspace"></p></section>
+    <section class="permission-detail"><strong>目标或命令</strong><pre id="permission-target"></pre></section>
+    <section class="permission-detail"><strong>内容预览</strong><pre id="permission-preview"></pre></section>
+    <section class="permission-detail"><strong>风险说明</strong><p id="permission-risk"></p></section>
+    <div class="drawer-actions">
+      <button id="reject-permission" class="danger-button" type="button">拒绝</button>
+      <button id="approve-permission" class="primary-button" type="button">批准本次执行</button>
+    </div>
+  </aside>
+
+  <script src="./trace_viewer_core.js?v=1.0"></script>
+  <script src="./web_agent.js?v=1.0"></script>
+</body>
+</html>

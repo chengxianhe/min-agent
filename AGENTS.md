@@ -210,6 +210,25 @@ V0.9 不增加：动态改计划、重试、恢复、并行或任务依赖图；
 - `FakeLLM` 不得保留跨任务隐藏状态；跨任务信息只能来自公开上下文中的 inherited artifacts。
 - Viewer 只读，页面改动只允许发生在 `#task-plan-panel` 内。
 
+## V1.0 边界
+
+V1.0 只增加一个本机长驻 Web Agent 操作闭环：网页发起 Fake/DeepSeek 任务、网页处理当前运行的危险工具权限、复用 V0.9 Viewer 查看过程，以及只读历史回放。
+
+V1.0 不改变 AgentLoop、ToolRegistry、任务计划、任务产物、workspace、write_file 或 run_command 的既有安全边界。
+
+## V1.0 Web Agent 规则
+
+- 服务只监听 127.0.0.1，workspace 由启动参数固定，页面不能传入或切换 workspace。
+- 同一时间最多一个活动运行，不排队、不并发。
+- Web 模式的 DeepSeek Key 只存于服务进程内存，不读写 .env，不进入日志、Trace、run record 或浏览器持久化存储；Fake 不读取 Key。
+- 网页只能处理当前运行产生的 write_file 和 run_command 权限；关闭抽屉不等于拒绝；一份权限只能处理一次。
+- 历史回放只读，不能产生权限或工具执行。
+- V0.9 Viewer 内部模块顺序、关键 ID、任务产物和轮次交互保持不变；V1.0 页面能力放在 Viewer 外层。
+- 现有单次 CLI 入口和终端权限确认继续兼容。
+- Web API 单元测试使用标准库本地 HTTP 客户端。
+- Web 页面变更必须完成真实浏览器验收；源码结构测试不能报告为浏览器 PASS。
+- Key 泄漏扫描属于 V1.0 验收。
+
 ## V0.3 安全规则
 
 - `list_dir` 和 `read_file` 都只能访问指定 workspace 内路径。
@@ -343,7 +362,7 @@ runs/YYYYMMDD-HHMMSS-<run-id>.json
 
 不要把版本记录写成代码提交清单。技术实现细节只保留必要摘要。
 
-版本产品设计、静态原型和详细开发计划按版本目录聚合，放在 `docs/superpowers/v0.x/` 下，例如：
+版本产品设计、静态原型和详细开发计划按版本目录聚合，放在 `docs/superpowers/vX.Y/` 下，例如：
 
 ```text
 docs/superpowers/v0.6/
@@ -360,10 +379,11 @@ docs/superpowers/v0.6/
 
 - `main` 只代表已经验收完成的版本。
 - 每个新版本从最新 `main` 创建版本分支。
-- 版本分支统一命名为 `codex/min-agent-demo-v0.x`，例如 `codex/min-agent-demo-v0.6`。
+- 版本分支统一命名为 `codex/min-agent-demo-vX.Y`，例如 `codex/min-agent-demo-v1.0`。
 - 旧的 `v2`、`v3`、`v4` 这类命名只作为历史遗留，不再继续使用。
 - 版本开发、测试、浏览器验收和文档收尾都在版本分支完成。
 - tag 只在最终验收完成后再打，避免 tag 指向未完成验收的中间状态。
+- 版本分支推送后必须等待 GitHub Actions 通过，再创建并推送 tag。
 - 已发布到 GitHub 的 tag 不移动；如果需要补充验收收尾，用新的提交记录表达。
 - 合并到 `main` 优先使用 fast-forward，让历史保持线性。
 - 合并并推送 `main` 后，再从最新 `main` 创建下一个版本分支。

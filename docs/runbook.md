@@ -2,6 +2,39 @@
 
 本文件记录 min-agent-demo 的运行、验证和排查方式。
 
+## V1.0 Web Agent 服务
+
+启动固定 workspace 的本地服务：
+
+```bash
+PYTHONPATH=src python3 -m min_agent.web_app \
+  --workspace examples/workspace \
+  --runs-dir runs \
+  --port 0 \
+  --no-browser \
+  --step-delay 0
+```
+
+`--port 0` 会选择空闲环回端口。服务打印 URL 后持续运行，终端 `Ctrl+C` 负责关闭服务；关闭浏览器不会停止服务。
+
+- 发起页只展示服务启动时固定的 workspace；创建运行只提交 `goal` 和 `decision_model`。
+- Fake 默认可离线运行。DeepSeek Key 仅通过页面配置到当前服务内存，配置后输入框清空；活动 DeepSeek 运行期间不能清除。
+- `write_file` 和 `run_command` 在当前运行的权限抽屉中批准/拒绝；关闭抽屉、刷新或切换页面不会处理请求。
+- 历史运行只从 `runs/*.json` 读取，损坏记录被隔离；历史回放不能执行工具或处理历史权限。
+
+诊断顺序：服务无法启动先检查 workspace、端口与静态资源；页面提交失败检查 API 输入或单活动运行冲突；模型/工具失败查看当前 Trace 和保存的 run record；SSE 断线只表示连接重连，不等于 Agent 失败。
+
+不要把某次验收使用的本机临时路径、测试数量或耗时固化在运行手册中。每次发布应在交付记录里保存当次真实输出，并至少覆盖：
+
+- Web 启动参数确实传入当前运行，而不是静默使用默认模型配置。
+- Fake 简单任务、写文件拒绝和复合任务批准路径。
+- `run_command`、`write_file` 均在批准前暂停，拒绝后不出现对应 `tool_started`。
+- 已完成、失败和复合运行都能从历史页只读回放。
+- 390px 窄屏下主要操作与 Trace 仍可使用，浏览器 console 没有 JavaScript error。
+- Key 不进入页面持久化存储、Trace、run record、日志或仓库改动。
+- 真实 DeepSeek 浏览器 smoke 使用本机页面临时输入有效 Key；没有执行时必须记录 `NOT RUN` 及原因。
+- GitHub Actions 在 macOS/Linux 和项目声明的 Python 版本上通过；工作流尚未触发时不能报告为 PASS。
+
 ## 正常运行
 
 ```bash
@@ -97,42 +130,91 @@ git status --short
 ```bash
 git checkout main
 git pull --ff-only origin main
-git checkout -b codex/min-agent-demo-v0.6
-git push -u origin codex/min-agent-demo-v0.6
+git checkout -b codex/min-agent-demo-v1.0
 ```
 
-分支命名统一使用 `codex/min-agent-demo-v0.x`。
+分支命名统一使用 `codex/min-agent-demo-vX.Y`；上面的 `v1.0` 是当前版本示例，后续版本替换为对应版本号。
+
+本地版本分支创建完成后即可开始开发。是否把新分支推送到 GitHub 单独判断；执行下面的命令前必须先取得用户对目标 remote 和分支名的明确授权：
+
+```bash
+git push -u origin codex/min-agent-demo-v1.0
+```
 
 ### 完成当前版本
 
-1. 在版本分支完成实现、测试、浏览器验收和文档收尾。
-2. 运行标准验证流程。
-3. 在最终验收完成点打版本 tag，例如 `v0.6`。
-4. 推送版本分支和 tag。
-5. 快进合并到 `main`。
-6. 推送 `main`。
-7. 从最新 `main` 创建下一个版本分支。
+1. 在版本分支完成实现、测试、浏览器验收、diff 审查和文档收尾。
+2. 运行标准验证流程，形成发布前证据包。
+3. 向用户汇报当前 HEAD、实际改动、测试与浏览器结果、未解决风险，以及拟执行的 commit、push、CI、tag 和 fast-forward 合并动作。
+4. 取得用户对具体发布动作的明确授权；授权后如果 HEAD、diff、目标分支或 tag 发生变化，必须重新确认。
+5. 在最终验收完成点创建发布 commit。
+6. 推送版本分支，等待 GitHub Actions 全部通过；未通过时不创建 tag。
+7. CI 通过后创建并推送版本 tag，例如 `v1.0`。
+8. 快进合并到 `main`，在 `main` 上重新运行完整测试，再推送 `main`。
+9. 核对本地 HEAD、`origin/main`、版本分支和 tag 指向同一预期提交。
+10. 从正式版本完成一次真实用户路径验证；涉及页面时重新做浏览器验收，不能只核对 Git 引用。
+11. 完成版本复盘，更新 CHANGELOG 或正式验收记录，并先向用户提交规则或长期经验候选。
+12. 汇报最终结果并等待用户确认；清理旧分支、worktree 和临时产物必须另行取得授权。
 
-推荐命令：
+发布前证据包至少包含：
+
+- 当前分支、基线和 HEAD。
+- 实际修改文件及与已确认范围的差异。
+- 机制单元测试、Agent 场景测试和浏览器验收结果。
+- `git diff --check`、工作区状态和临时产物检查。
+- 未解决风险、跳过的验证及原因。
+- 准备执行的 commit message、tag、remote、分支和合并方式。
+
+本地检查命令：
 
 ```bash
 git status --short
 python3 -m unittest discover -s tests
-git tag v0.6
-git push origin codex/min-agent-demo-v0.6
-git push origin v0.6
+git diff --check
+```
+
+取得用户对上述具体发布动作的明确授权后，才能执行下面的发布命令：
+
+staging 和 commit 必须使用已批准的文件清单和 commit message，因此不在运行手册中写死 `git add -A`。确认发布 commit 后，先推送版本分支：
+
+```bash
+git push -u origin codex/min-agent-demo-v1.0
+```
+
+等待该提交的 GitHub Actions 全部通过后，才能执行 tag 和 fast-forward 合并：
+
+```bash
+git tag v1.0
+git push origin v1.0
 git checkout main
 git pull --ff-only origin main
-git merge --ff-only codex/min-agent-demo-v0.6
+git merge --ff-only codex/min-agent-demo-v1.0
 python3 -m unittest discover -s tests
 git push origin main
-git checkout -b codex/min-agent-demo-v0.7
-git push -u origin codex/min-agent-demo-v0.7
 ```
+
+创建和推送下一版本分支属于下一项开发任务，不能沿用当前版本的发布授权。
+
+### 版本复盘与经验固化
+
+复盘发生在正式版本真实效果验证之后、最终清理之前。它不是一句“测试通过”，至少要回答：
+
+- 本次目标、最终实现和用户实际感知是否一致，哪些地方发生了偏差。
+- 哪些问题导致失败、返工或人工介入，根因是什么。
+- 哪些问题被单元测试、Agent 场景测试或浏览器验收发现，哪些直到发布后才暴露。
+- 产品设计、实现、测试、README、CHANGELOG 和运行手册之间是否存在漂移。
+- 下一版本应直接复用什么做法，应该停止什么做法，还缺少什么验证或工具能力。
+
+复盘产物按下面的边界处理：
+
+- 已确认的版本事实写入 `CHANGELOG.md` 或该版本正式验收记录。
+- 只对本项目稳定且重复出现的问题，提议更新 `AGENTS.md` 或 `docs/runbook.md`。
+- 跨项目规则、Skill 和长期记忆只形成候选，不自动修改；必须说明影响并取得用户明确确认。
+- 偶发环境问题、临时路径、未经验证的推断和执行过程噪音不固化为长期规则。
 
 ### 清理旧分支
 
-版本分支合并后可以保留一段时间用于对比。确认不再需要后，再删除旧分支。
+版本分支合并并完成真实效果验证、版本复盘和用户最终确认后，可以保留一段时间用于对比。确认不再需要后，再删除旧分支。
 
 删除分支属于破坏性操作，执行前必须得到用户明确确认。
 
@@ -263,9 +345,10 @@ DeepSeek JSON Output 偶尔可能返回空 content。V0.2 会把它记录为模�
 
 ### API key 安全边界
 
-- `DEEPSEEK_API_KEY` 只能从环境变量读取。
+- CLI DeepSeek 模式只从环境变量读取 `DEEPSEEK_API_KEY`。
+- Web DeepSeek 模式不读取该环境变量；Key 只通过页面进入当前服务进程内存。
 - 不创建 `.env`。
-- 不把 API key 写入代码、TraceEvent 或 run record。
+- 不把 API key 写入代码、浏览器持久化存储、日志、TraceEvent 或 run record。
 - 默认 fake 模式不读取也不校验 `DEEPSEEK_API_KEY`。
 
 ### 回退到 FakeLLM

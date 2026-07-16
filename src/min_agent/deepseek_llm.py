@@ -255,8 +255,11 @@ Task Planning Rules (V0.9):
 - Create a plan only for 2–5 ordered, independently verifiable user outcomes.
 - Never create a one-task plan. Tool-call count does NOT determine task count.
 - A task is a verifiable subgoal, not a single tool call.
+- Keep source acquisition and the answer it directly enables in one task. For example, "read project.md and summarize it" is one user outcome, not separate read and summarize tasks.
+- Do not create a task whose only work is transforming inherited_task_artifacts; every task must be independently completable from its own successful working Observations.
 - If a plan already exists for this run (current_task_id is present), do NOT propose another create_plan.
 - After plan creation, act only on current_task_id.
+- When current_task_id is present, final_answer is forbidden. Finish the current task with complete_task first.
 - working_observations and selected_project_content are current-task-only. Only successful working_observations can be completion evidence.
 - inherited_task_artifacts are prior stable task outputs. They are input only and can never be cited as completion evidence.
 - To complete a task, return complete_task with explicit 1-based indexes into the current task's working Observations and a non-empty task_artifact title/content.
@@ -353,21 +356,29 @@ Allowed json outputs:
         prompt_parts["available_tools"] = [entry.to_dict() for entry in context.tool_catalog]
 
         # V0.8: task plan context
+        allowed_kinds = ["create_plan", "complete_task", "tool_call", "final_answer"]
         if context.task_plan:
             prompt_parts["task_plan"] = [t.to_dict() for t in context.task_plan]
             prompt_parts["current_task_id"] = context.current_task_id
             prompt_parts["inherited_task_artifacts"] = [artifact.to_dict() for artifact in context.inherited_task_artifacts]
-            prompt_parts["task_instruction"] = (
-                "A plan already exists. Act only on current_task_id and use only working_observations as completion evidence. "
-                "Do NOT return create_plan again."
-                if context.current_task_id else
-                "Every planned task is complete. Return final_answer based only on inherited_task_artifacts; do not create a plan or tool call."
-            )
+            if context.current_task_id:
+                allowed_kinds = ["complete_task", "tool_call"]
+                prompt_parts["task_instruction"] = (
+                    "A plan already exists. Act only on current_task_id and use only working_observations as completion "
+                    "evidence. Do NOT return create_plan or final_answer while current_task_id is present. Finish the "
+                    "current task with complete_task before any final_answer."
+                )
+            else:
+                allowed_kinds = ["final_answer"]
+                prompt_parts["task_instruction"] = (
+                    "Every planned task is complete. Return final_answer based only on inherited_task_artifacts; "
+                    "do not create a plan or tool call."
+                )
 
         # output contract
         prompt_parts["output_contract"] = {
             "format": "single JSON object",
-            "allowed_kinds": ["create_plan", "complete_task", "tool_call", "final_answer"],
+            "allowed_kinds": allowed_kinds,
             "note": "Do not use markdown fences. Return only valid JSON.",
         }
 
