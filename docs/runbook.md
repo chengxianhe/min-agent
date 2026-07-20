@@ -2,7 +2,7 @@
 
 本文件记录 Min Agent 的运行、验证和排查方式。
 
-## V1.0 Web Agent 服务
+## Web Agent 服务
 
 启动固定 workspace 的本地服务：
 

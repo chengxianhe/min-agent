@@ -4,7 +4,7 @@
 
 它不是生产级 Agent，也不是迷你版 Claude Code。这个项目只做一件事：让你从页面上看清楚 Agent 如何围绕目标持续判断、调用受控工具、吸收执行结果，最后完成任务。
 
-![Min Agent V1.0 Web Agent](docs/assets/v1.0/web-agent-overview.png)
+![Min Agent V1.1 Web Agent](docs/assets/v1.1/web-agent-overview.png)
 
 ## 你能从中看到什么
 
@@ -17,7 +17,7 @@
 
 ## 快速开始
 
-运行环境：Python 3.10 或更高版本；支持 macOS 和 Linux。V1.0 以克隆仓库直接运行的方式发布，不承诺 PyPI 安装入口。
+运行环境：Python 3.10 或更高版本；支持 macOS 和 Linux。当前稳定源码版本为 V1.1，以克隆仓库直接运行的方式发布，不承诺 PyPI 安装入口。
 
 ```bash
 git clone https://github.com/JinweiX/min-agent.git
@@ -81,11 +81,13 @@ Web 模式的 DeepSeek Key 只保存在当前服务进程内存中，不写入 `
 - `runs/*.json` 可能保存任务目标、文件内容、模型输入输出、工具结果和完整 Trace。不要用敏感工作区做首次体验，也不要公开提交运行记录。
 - 同一时间只允许一个活动运行；历史记录仅供只读回放，不能再次执行工具。
 
-## V1.0 的边界
+## V1.1 的边界
 
-V1.0 已包含：网页发起 Fake/DeepSeek 任务、实时过程观察、网页权限确认、任务计划与产物展示、只读历史回放，以及兼容的单次 CLI 入口。
+V1.1 已包含：网页发起 Fake/DeepSeek 任务、实时过程观察、网页权限确认、任务计划与产物展示、只读历史回放，以及兼容的单次 CLI 入口。在 V1.0 能力基础上，V1.1 统一了页面视觉语言，强化 `Goal -> Decide -> Tool -> Observe` 阅读路径，并补齐表单、权限抽屉、异步反馈、历史分页和 390px 窄屏体验。
 
-V1.0 不包含：远程访问、登录、多用户、多 workspace、并发队列、停止/恢复/重试、动态改计划、任意命令、覆盖文件、长期记忆、多 Agent、MCP、Hook 或插件系统。
+V1.1 不增加新的 Agent 能力，也不包含：远程访问、登录、多用户、多 workspace、并发队列、停止/恢复/重试、动态改计划、任意命令、覆盖文件、长期记忆、多 Agent、MCP、Hook 或插件系统。
+
+当前项目以 V1.1 作为稳定公开版本，短期内进入维护冻结期。发现运行问题或边界描述不一致时，请通过 [GitHub Issues](https://github.com/JinweiX/min-agent/issues) 反馈。
 
 ## CLI 入口
 
@@ -111,7 +113,8 @@ python3 -m unittest discover -s tests
 
 - [架构说明](docs/architecture.md)
 - [运行与排查手册](docs/runbook.md)
-- [V1.0 产品设计](docs/superpowers/v1.0/product-design.md)
+- [V1.1 产品设计](docs/superpowers/v1.1/product-design.md)
+- [V1.1 验收记录](docs/superpowers/v1.1/acceptance.md)
 - [版本记录](CHANGELOG.md)
 
 ## License
