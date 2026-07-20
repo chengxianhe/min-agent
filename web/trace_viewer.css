@@ -15,6 +15,28 @@ body {
   margin: 0;
 }
 
+.skip-link {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 100;
+  padding: 10px 14px;
+  border-radius: 8px;
+  color: #fff;
+  background: #172033;
+  transform: translateY(-150%);
+  transition: transform 0.16s ease;
+}
+
+.skip-link:focus-visible {
+  transform: translateY(0);
+}
+
+:where(button, a):focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.38);
+  outline-offset: 3px;
+}
+
 .shell {
   max-width: 1120px;
   margin: 0 auto;
@@ -733,14 +755,31 @@ pre {
 
 .task-card {
   display: grid;
+  width: 100%;
   gap: 8px;
   border: 1px solid #e5e7eb;
   border-top: 4px solid #94a3b8;
   border-radius: 6px;
   background: #ffffff;
   padding: 14px;
+  color: inherit;
+  text-align: left;
   cursor: pointer;
   transition: box-shadow 0.15s;
+}
+
+.task-item {
+  min-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 .task-card:hover {

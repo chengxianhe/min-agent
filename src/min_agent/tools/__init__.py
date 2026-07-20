@@ -1,1 +1,1 @@
-"""Built-in tools for min-agent-demo."""
+"""Built-in tools for Min Agent."""

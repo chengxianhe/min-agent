@@ -1,6 +1,18 @@
-# min-agent-demo 版本记录
+# Min Agent 版本记录
 
 这个文件记录每个版本对使用者带来的变化，而不是代码改动细节。
+
+## V1.1（开发中）: 本地 Agent 机制观察台
+
+V1.1 在不改变 V1.0 运行、权限、历史和 workspace 安全边界的前提下，重做 Web Agent 的信息层级与交互反馈。发起页以 `Goal -> Decide -> Tool -> Observe` 机制轨道解释真实 Agent Loop；Trace Viewer 强化原始目标、最终结果、运行统计和轮次详情的阅读顺序；历史记录改为本地化日期与每批 20 条加载。
+
+页面现在补齐主导航深链、skip link、表单 label/name/error、live region、请求中防重复、权限对话框语义、焦点循环与背景 inert，并为任务和轮次选择暴露 `aria-pressed`。视觉从通用蓝色 SaaS 卡片调整为低饱和矿物色“本地机制观察台”，同时提供 390px 单列布局、明确 `focus-visible` 和 reduced-motion 分支。
+
+项目正式名称同步调整为 `Min Agent`，仓库、本地目录和 Python 分发名使用 `min-agent`，Python 导入路径继续保持 `min_agent`。现行文档、配置、模型提示词、示例 workspace 与测试数据不再把 `demo` 作为项目名称的一部分；历史版本资料、旧分支和 tag 保留原貌。
+
+当前分支自动回归为 425 项通过；真实浏览器已验证 Fake 只读运行、Viewer 轮次切换、写文件权限关闭/重开/拒绝、拒绝后不落盘、历史 20→40 分批、历史回放、桌面端与 390×844 启动页/历史页/Trace，以及 console 无 error/warning。真实 DeepSeek 不在本次 UI-only 验收中使用，V1.0 的 Key 边界保持不变。
+
+这一版不增加新 Agent 能力、API、SSE 事件、工具、权限类型、历史写操作、远程访问、框架、外部字体或前端依赖，也尚未提交、推送或发布。
 
 ## V1.0: 本地 Web Agent 操作闭环
 

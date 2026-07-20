@@ -41,7 +41,7 @@ class CliScenarioTest(unittest.TestCase):
             workspace = root / "workspace"
             runs = root / "runs"
             workspace.mkdir()
-            (workspace / "project.md").write_text("# 项目\nmin-agent-demo", encoding="utf-8")
+            (workspace / "project.md").write_text("# 项目\nMin Agent", encoding="utf-8")
             (workspace / "architecture.md").write_text("# 架构\nAgentLoop", encoding="utf-8")
 
             exit_code = main(
@@ -79,7 +79,7 @@ class CliScenarioTest(unittest.TestCase):
             workspace = root / "workspace"
             runs = root / "runs"
             workspace.mkdir()
-            (workspace / "project.md").write_text("# 项目\nmin-agent-demo", encoding="utf-8")
+            (workspace / "project.md").write_text("# 项目\nMin Agent", encoding="utf-8")
 
             with patch("builtins.input", return_value="y"):
                 exit_code = main(
@@ -123,7 +123,7 @@ class CliScenarioTest(unittest.TestCase):
             workspace = root / "workspace"
             runs = root / "runs"
             workspace.mkdir()
-            (workspace / "project.md").write_text("# 项目\nmin-agent-demo", encoding="utf-8")
+            (workspace / "project.md").write_text("# 项目\nMin Agent", encoding="utf-8")
 
             with patch("builtins.input", return_value="n"):
                 exit_code = main(
@@ -558,7 +558,7 @@ class CliCompositeScenarioTest(unittest.TestCase):
             workspace = root / "workspace"
             runs = root / "runs"
             workspace.mkdir()
-            (workspace / "project.md").write_text("# 项目\nmin-agent-demo", encoding="utf-8")
+            (workspace / "project.md").write_text("# 项目\nMin Agent", encoding="utf-8")
             (workspace / "architecture.md").write_text("# 架构\nAgentLoop", encoding="utf-8")
 
             fake_time = "2026-07-07 10:30:00 CST"
@@ -682,7 +682,7 @@ class CliCompositeScenarioTest(unittest.TestCase):
             workspace = root / "workspace"
             runs = root / "runs"
             workspace.mkdir()
-            (workspace / "project.md").write_text("# 项目\nmin-agent-demo", encoding="utf-8")
+            (workspace / "project.md").write_text("# 项目\nMin Agent", encoding="utf-8")
             (workspace / "architecture.md").write_text("# 架构\nAgentLoop", encoding="utf-8")
 
             # 拒绝 run_command（task-3 的第一个权限请求）
@@ -759,7 +759,7 @@ class CliCompositeScenarioTest(unittest.TestCase):
             workspace = root / "workspace"
             runs = root / "runs"
             workspace.mkdir()
-            (workspace / "project.md").write_text("# 项目\nmin-agent-demo", encoding="utf-8")
+            (workspace / "project.md").write_text("# 项目\nMin Agent", encoding="utf-8")
             (workspace / "architecture.md").write_text("# 架构\nAgentLoop", encoding="utf-8")
 
             fake_time = "2026-07-07 10:30:00 CST"
@@ -863,7 +863,7 @@ class CliCompositeScenarioTest(unittest.TestCase):
             workspace = root / "workspace"
             runs = root / "runs"
             workspace.mkdir()
-            (workspace / "project.md").write_text("# 项目\nmin-agent-demo", encoding="utf-8")
+            (workspace / "project.md").write_text("# 项目\nMin Agent", encoding="utf-8")
             (workspace / "architecture.md").write_text("# 架构\nAgentLoop", encoding="utf-8")
 
             exit_code = main(

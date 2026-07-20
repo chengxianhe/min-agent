@@ -59,6 +59,42 @@ class ProjectStructureTest(unittest.TestCase):
         self.assertIn("ToolRegistry", rules)
         self.assertIn("不能写死固定 7 步流程", rules)
 
+    def test_active_project_identity_uses_min_agent_name(self) -> None:
+        legacy_name = "min-agent-" + "demo"
+        active_identity_files = [
+            ".codex-claude-collaboration.json",
+            "AGENTS.md",
+            "CHANGELOG.md",
+            "README.md",
+            "docs/architecture.md",
+            "docs/runbook.md",
+            "docs/superpowers/v1.1/acceptance.md",
+            "docs/superpowers/v1.1/implementation-plan.md",
+            "docs/superpowers/v1.1/product-design.md",
+            "docs/superpowers/v1.1/ui-audit.md",
+            "docs/superpowers/v1.1/web-agent-prototype.html",
+            "examples/workspace/project.md",
+            "pyproject.toml",
+            "src/min_agent/deepseek_llm.py",
+            "src/min_agent/tools/__init__.py",
+            "tests/test_cli_scenarios.py",
+            "tests/test_fake_llm.py",
+        ]
+
+        for relative_path in active_identity_files:
+            with self.subTest(relative_path=relative_path):
+                content = (ROOT / relative_path).read_text(encoding="utf-8")
+                self.assertNotIn(legacy_name, content)
+
+        pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        self.assertIn('name = "min-agent"', pyproject)
+        self.assertIn("https://github.com/JinweiX/min-agent", pyproject)
+        self.assertIn("# Min Agent", (ROOT / "README.md").read_text(encoding="utf-8"))
+        self.assertIn(
+            '"project_id": "min-agent"',
+            (ROOT / ".codex-claude-collaboration.json").read_text(encoding="utf-8"),
+        )
+
     def test_cli_runs_with_example_workspace_without_viewer(self) -> None:
         import tempfile
 

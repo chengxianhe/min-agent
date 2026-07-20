@@ -1,10 +1,10 @@
-# min-agent-demo
+# Min Agent
 
 一个可观察、可本地运行的最小 Agent 机制演示器。
 
 它不是生产级 Agent，也不是迷你版 Claude Code。这个项目只做一件事：让你从页面上看清楚 Agent 如何围绕目标持续判断、调用受控工具、吸收执行结果，最后完成任务。
 
-![min-agent-demo V1.0 Web Agent](docs/assets/v1.0/web-agent-overview.png)
+![Min Agent V1.0 Web Agent](docs/assets/v1.0/web-agent-overview.png)
 
 ## 你能从中看到什么
 
@@ -20,8 +20,8 @@
 运行环境：Python 3.10 或更高版本；支持 macOS 和 Linux。V1.0 以克隆仓库直接运行的方式发布，不承诺 PyPI 安装入口。
 
 ```bash
-git clone https://github.com/JinweiX/min-agent-demo.git
-cd min-agent-demo
+git clone https://github.com/JinweiX/min-agent.git
+cd min-agent
 PYTHONPATH=src python3 -m min_agent.web_app \
   --workspace examples/workspace \
   --runs-dir runs \

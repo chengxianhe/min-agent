@@ -45,6 +45,21 @@ class TraceViewerSourceTest(unittest.TestCase):
         self.assertLess(html.index('id="original-request"'), html.index('id="final-answer"'))
         self.assertLess(html.index('id="final-answer"'), html.index('id="round-list"'))
 
+    def test_v1_1_viewer_navigation_is_keyboard_and_motion_accessible(self) -> None:
+        html = (ROOT / "web" / "trace_viewer.html").read_text(encoding="utf-8")
+        css = (ROOT / "web" / "trace_viewer.css").read_text(encoding="utf-8")
+        source = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
+
+        self.assertIn('class="skip-link"', html)
+        self.assertIn('id="trace-main"', html)
+        self.assertIn(":focus-visible", css)
+        self.assertIn("@media (prefers-reduced-motion: reduce)", css)
+        self.assertIn('document.createElement("button")', source)
+        self.assertIn('card.setAttribute("aria-pressed"', source)
+        self.assertIn('button.setAttribute("aria-pressed"', source)
+        self.assertNotIn("等待 Trace 事件...", source)
+        self.assertNotIn("等待执行完成...", source)
+
     def test_viewer_groups_events_by_agentic_loop_rounds(self) -> None:
         source = (ROOT / "web" / "trace_viewer_core.js").read_text(encoding="utf-8")
 

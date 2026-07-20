@@ -1,6 +1,6 @@
 # Runbook
 
-本文件记录 min-agent-demo 的运行、验证和排查方式。
+本文件记录 Min Agent 的运行、验证和排查方式。
 
 ## V1.0 Web Agent 服务
 
@@ -130,15 +130,15 @@ git status --short
 ```bash
 git checkout main
 git pull --ff-only origin main
-git checkout -b codex/min-agent-demo-v1.0
+git checkout -b codex/min-agent-v1.1
 ```
 
-分支命名统一使用 `codex/min-agent-demo-vX.Y`；上面的 `v1.0` 是当前版本示例，后续版本替换为对应版本号。
+分支命名统一使用 `codex/min-agent-vX.Y`；上面的 `v1.1` 是当前版本示例，后续版本替换为对应版本号。
 
 本地版本分支创建完成后即可开始开发。是否把新分支推送到 GitHub 单独判断；执行下面的命令前必须先取得用户对目标 remote 和分支名的明确授权：
 
 ```bash
-git push -u origin codex/min-agent-demo-v1.0
+git push -u origin codex/min-agent-v1.1
 ```
 
 ### 完成当前版本
@@ -178,17 +178,17 @@ git diff --check
 staging 和 commit 必须使用已批准的文件清单和 commit message，因此不在运行手册中写死 `git add -A`。确认发布 commit 后，先推送版本分支：
 
 ```bash
-git push -u origin codex/min-agent-demo-v1.0
+git push -u origin codex/min-agent-v1.1
 ```
 
 等待该提交的 GitHub Actions 全部通过后，才能执行 tag 和 fast-forward 合并：
 
 ```bash
-git tag v1.0
-git push origin v1.0
+git tag v1.1
+git push origin v1.1
 git checkout main
 git pull --ff-only origin main
-git merge --ff-only codex/min-agent-demo-v1.0
+git merge --ff-only codex/min-agent-v1.1
 python3 -m unittest discover -s tests
 git push origin main
 ```

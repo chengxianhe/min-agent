@@ -237,7 +237,7 @@ class DeepSeekLLM:
         }
 
     def _system_prompt(self) -> str:
-        return """You are the decision model for min-agent-demo.
+        return """You are the decision model for Min Agent.
 Return only one valid json object matching the local AgentAction schema.
 Do not use markdown fences.
 Do not invent tools.

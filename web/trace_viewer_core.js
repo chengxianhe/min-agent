@@ -191,9 +191,14 @@
         const status = plan.statuses[tid] || "pending";
         const reason = plan.failureReasons[tid] || "";
 
-        const card = document.createElement("li");
+        const item = document.createElement("li");
+        item.className = "task-item";
+        const card = document.createElement("button");
+        card.type = "button";
         card.className = `task-card task-${status}`;
-        if (tid === state.selectedTaskId) {
+        const selected = tid === state.selectedTaskId;
+        card.setAttribute("aria-pressed", selected ? "true" : "false");
+        if (selected) {
           card.classList.add("task-selected");
         }
 
@@ -229,7 +234,8 @@
           render();
         });
 
-        list.append(card);
+        item.append(card);
+        list.append(item);
       }
 
       // Auto-select active task
@@ -586,7 +592,7 @@
       if (!entry && rounds.length === 0 && !completion) {
         const empty = document.createElement("li");
         empty.className = "empty";
-        empty.textContent = "等待 Trace 事件...";
+        empty.textContent = "等待 Trace 事件…";
         roundList.append(empty);
         return;
       }
@@ -603,6 +609,7 @@
 
         const button = document.createElement("button");
         button.type = "button";
+        button.setAttribute("aria-pressed", round.id === state.selectedRoundId ? "true" : "false");
 
         const roundIndex = document.createElement("span");
         roundIndex.className = "round-index";
@@ -665,6 +672,7 @@
 
       const button = document.createElement("button");
       button.type = "button";
+      button.setAttribute("aria-pressed", state.selectedRoundId === "task-entry" ? "true" : "false");
 
       const roundIndex = document.createElement("span");
       roundIndex.className = "round-index";
@@ -718,6 +726,7 @@
 
       const button = document.createElement("button");
       button.type = "button";
+      button.setAttribute("aria-pressed", state.selectedRoundId === "task-completion" ? "true" : "false");
 
       const roundIndex = document.createElement("span");
       roundIndex.className = "round-index";
@@ -1386,7 +1395,7 @@
         outputDetails["duration"] = metadata.duration_ms != null ? `${metadata.duration_ms} ms` : "N/A";
         outputDetails["truncated"] = (metadata.stdout_truncated || metadata.stderr_truncated) ? "true" : "false";
       } else {
-        outputDetails["status"] = "等待执行完成...";
+        outputDetails["status"] = "等待执行完成…";
       }
 
       const ioGrid = document.createElement("div");

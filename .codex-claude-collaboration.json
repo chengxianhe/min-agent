@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "project_id": "min-agent-demo",
+  "project_id": "min-agent",
   "records_dir_template": "docs/collaboration/{task_id}",
   "rules_files": ["AGENTS.md"],
   "validation_commands": [

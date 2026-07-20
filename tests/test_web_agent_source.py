@@ -44,7 +44,7 @@ class WebAgentSourceTest(unittest.TestCase):
         self.assertIn("function parseRoute", source)
         self.assertIn("function refreshPendingPermission", source)
         self.assertIn("[50, 100, 200, 400, 800]", source)
-        self.assertIn("new EventSource(`/api/runs/current/events?run_id=${encodeURIComponent(run.run_id)}`)", source)
+        self.assertIn('new EventSource("/api/runs/current/events?run_id=" + encodeURIComponent(run.run_id))', source)
         self.assertIn("viewer.loadRun({ runId: run.run_id, status: run.status, events: run.events || [] })", source)
         self.assertNotIn("localStorage", source)
         self.assertNotIn("sessionStorage", source)
@@ -84,19 +84,82 @@ class WebAgentSourceTest(unittest.TestCase):
         self.assertIn(".launch-layout", css)
         self.assertIn(".history-layout", css)
         self.assertIn(".permission-drawer", css)
-        self.assertIn("@media(max-width:760px)", css)
+        self.assertIn("@media (max-width: 760px)", css)
 
     def test_trace_page_uses_readable_type_and_a_wide_viewer_canvas(self) -> None:
         css = (ROOT / "web" / "web_agent.css").read_text(encoding="utf-8")
 
         self.assertIn('"PingFang SC"', css)
-        self.assertIn("width:min(1680px,calc(100% - 64px))", css)
-        self.assertIn(".viewer-shell .shell{max-width:none;margin:0;padding:0}", css)
-        self.assertIn("grid-template-columns:minmax(360px,.58fr) minmax(0,1.42fr)", css)
+        self.assertIn("width: min(1480px, calc(100% - 64px));", css)
+        self.assertIn(".viewer-shell .shell", css)
+        self.assertIn("max-width: none;", css)
+        self.assertIn("grid-template-columns: minmax(340px, 0.58fr) minmax(0, 1.42fr);", css)
 
     def test_web_trace_context_is_inline_and_task_steps_are_compact_rows(self) -> None:
         css = (ROOT / "web" / "web_agent.css").read_text(encoding="utf-8")
 
         self.assertIn(".request-run-context", css)
-        self.assertIn(".viewer-shell .task-list { grid-template-columns:repeat(auto-fit,minmax(190px,1fr));", css)
-        self.assertIn(".viewer-shell .task-card { min-height:0;", css)
+        self.assertIn(".viewer-shell .task-list", css)
+        self.assertIn("grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));", css)
+        self.assertIn(".viewer-shell .task-card", css)
+        self.assertIn("min-height: 0;", css)
+
+    def test_v1_1_shell_has_accessible_navigation_forms_and_dialog(self) -> None:
+        html = (ROOT / "web" / "web_agent.html").read_text(encoding="utf-8")
+
+        for token in (
+            'class="skip-link" href="#new-page"',
+            'href="#/new" data-route="new" aria-current="page"',
+            'href="#/trace" data-route="trace"',
+            'href="#/history" data-route="history"',
+            'name="deepseek_key"',
+            'autocomplete="off"',
+            'aria-describedby="goal-help goal-error"',
+            'id="app-message" class="app-message" role="status" aria-live="polite"',
+            'id="permission-drawer"',
+            'role="dialog"',
+            'aria-modal="true"',
+            'aria-describedby="permission-description"',
+            'id="history-more"',
+        ):
+            self.assertIn(token, html)
+
+    def test_v1_1_shell_has_visible_focus_and_reduced_motion_contracts(self) -> None:
+        css = (ROOT / "web" / "web_agent.css").read_text(encoding="utf-8")
+
+        self.assertIn(":focus-visible", css)
+        self.assertIn("@media (prefers-reduced-motion: reduce)", css)
+        self.assertIn(".mechanism-rail", css)
+        self.assertIn("--canvas: #eef2f0", css.lower())
+        self.assertNotIn("transition: all", css)
+        self.assertNotIn("outline: none", css)
+
+    def test_v1_1_runtime_batches_history_and_manages_permission_focus(self) -> None:
+        source = (ROOT / "web" / "web_agent.js").read_text(encoding="utf-8")
+
+        for token in (
+            "const HISTORY_BATCH_SIZE = 20",
+            "historyVisibleCount: HISTORY_BATCH_SIZE",
+            'new Intl.DateTimeFormat("zh-CN"',
+            "function trapPermissionFocus",
+            "function setBackgroundInert",
+            "state.historyVisibleCount += HISTORY_BATCH_SIZE",
+            "keyPending: false",
+            "runPending: false",
+        ):
+            self.assertIn(token, source)
+
+    def test_permission_resolution_message_is_transient_and_timer_safe(self) -> None:
+        source = (ROOT / "web" / "web_agent.js").read_text(encoding="utf-8")
+
+        for token in (
+            "const TRANSIENT_MESSAGE_DURATION_MS = 3000",
+            "messageTimer: null",
+            "function cancelMessageTimer",
+            "function showTransientMessage",
+            'showTransientMessage(approved ? "已批准本次执行，Agent 将继续运行。"',
+        ):
+            self.assertIn(token, source)
+
+        self.assertIn("clearTimeout(state.messageTimer)", source)
+        self.assertIn('target.dataset.tone = "success"', source)

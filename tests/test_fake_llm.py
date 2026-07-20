@@ -1078,7 +1078,7 @@ class FakeLLMV08PerTaskDecisionTest(unittest.TestCase):
             task_plan=plan,
             current_task_id="task-4",
             inherited_task_artifacts=[
-                TaskArtifact("task-2", "项目资料摘要", "## project.md\n# 项目 min-agent-demo", [1], 10, "available"),
+                TaskArtifact("task-2", "项目资料摘要", "## project.md\n# 项目 Min Agent", [1], 10, "available"),
                 TaskArtifact("task-3", "当前本地时间", "2026-07-07 10:30:00 CST", [1], 20, "available"),
             ],
         )

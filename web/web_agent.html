@@ -8,40 +8,58 @@
   <link rel="stylesheet" href="./web_agent.css">
 </head>
 <body>
+  <a id="skip-link" class="skip-link" href="#new-page">跳到主要内容</a>
   <header class="app-header">
     <div class="brand">
-      <span class="brand-mark">M</span>
-      <span>Min Agent</span>
+      <span class="brand-mark" aria-hidden="true">M</span>
+      <span class="brand-copy"><strong>Min Agent</strong><small>Local observatory</small></span>
     </div>
     <div class="header-actions">
       <nav class="app-nav" aria-label="主导航">
-        <button class="nav-button active" type="button" data-route="new">发起任务</button>
-        <button class="nav-button" type="button" data-route="trace">
-          <span id="nav-run-dot" class="run-dot"></span>
+        <a class="nav-button active" href="#/new" data-route="new" aria-current="page">发起任务</a>
+        <a class="nav-button" href="#/trace" data-route="trace">
+          <span id="nav-run-dot" class="run-dot" aria-hidden="true"></span>
           过程查看
-        </button>
-        <button class="nav-button" type="button" data-route="history">历史运行</button>
+        </a>
+        <a class="nav-button" href="#/history" data-route="history">历史运行</a>
       </nav>
       <button
         id="pending-permission-button"
         class="pending-permission-button"
         type="button"
+        aria-controls="permission-drawer"
+        aria-expanded="false"
         hidden
       >待审批 1</button>
     </div>
   </header>
 
-  <main id="new-page" class="page" data-page="new">
-    <header class="page-heading">
-      <p class="eyebrow">Local Web Agent</p>
-      <h1>发起一次新的 Agent 任务</h1>
-      <p>选择决策模型、描述目标，任务提交后会进入 Trace Viewer 展示真实执行过程。Workspace 由服务启动参数固定，页面不能修改。</p>
+  <div id="app-message" class="app-message" role="status" aria-live="polite" hidden></div>
+
+  <main id="new-page" class="page" data-page="new" tabindex="-1">
+    <header class="page-heading launch-heading">
+      <div>
+        <p class="eyebrow">Local Agent Observatory</p>
+        <h1>给目标。<br>看 Agent 如何抵达结果。</h1>
+        <p>每次判断、工具调用和 Observation 都来自真实运行。页面只负责发起与观察，不替 Agent 编排结果。</p>
+      </div>
+      <aside class="boundary-note" aria-label="本机运行边界">
+        <strong>本机边界已锁定</strong>
+        <p>Workspace 由服务启动参数固定；危险工具仍要由你逐次批准。</p>
+      </aside>
     </header>
+
+    <section class="mechanism-rail" aria-label="Agent Loop 机制">
+      <div><strong><span aria-hidden="true"></span>Goal</strong><small>输入可验收目标</small></div>
+      <div><strong><span aria-hidden="true"></span>Decide</strong><small>模型判断下一步</small></div>
+      <div><strong><span aria-hidden="true"></span>Tool</strong><small>本地边界内执行</small></div>
+      <div><strong><span aria-hidden="true"></span>Observe</strong><small>结果回到上下文</small></div>
+    </section>
 
     <div class="launch-layout">
       <section class="card launch-card">
-        <h2 class="section-title">任务配置</h2>
-        <p class="section-copy">页面只提交目标和本次运行凭据；模型决策、工具执行与权限边界仍由本地运行时负责。</p>
+        <h2 class="section-title">发起一次运行</h2>
+        <p class="section-copy">选择决策模型并描述结果目标；提交后自动进入过程查看。</p>
 
         <div class="field">
           <div class="field-label">
@@ -49,7 +67,7 @@
             <span class="field-hint">服务启动时固定</span>
           </div>
           <div class="workspace-display">
-            <code id="workspace-value"></code>
+            <code id="workspace-value" translate="no"></code>
             <span class="locked-badge">Locked</span>
           </div>
         </div>
@@ -63,39 +81,43 @@
             <div class="model-option">
               <input id="model-fake" type="radio" name="model" value="fake" checked>
               <label for="model-fake">
-                <span class="model-name"><span class="model-icon">F</span>Fake 模式</span>
+                <span class="model-name"><span class="model-icon" aria-hidden="true">F</span>Fake 模式</span>
                 <p>离线、确定性，用于演示标准机制路径，不读取 DeepSeek Key。</p>
               </label>
             </div>
             <div class="model-option">
               <input id="model-deepseek" type="radio" name="model" value="deepseek">
               <label for="model-deepseek">
-                <span class="model-name"><span class="model-icon">D</span>DeepSeek 模式</span>
+                <span class="model-name"><span class="model-icon" aria-hidden="true">D</span>DeepSeek 模式</span>
                 <p>真实模型决定下一步，工具仍只能通过本地 Tool Registry 执行。</p>
               </label>
             </div>
           </div>
 
           <section id="key-panel" class="key-panel" hidden>
-            <div class="field-label">
+            <label class="field-label" for="deepseek-key">
               <span>DeepSeek API Key</span>
               <span id="key-status-text" class="field-hint">未配置</span>
-            </div>
+            </label>
             <div id="key-input-row" class="key-row">
               <input
                 id="deepseek-key"
                 class="text-input"
                 type="password"
+                name="deepseek_key"
                 autocomplete="off"
-                placeholder="请输入本次服务使用的 Key"
+                spellcheck="false"
+                aria-describedby="key-note key-error"
+                placeholder="例如：sk-…"
               >
-              <button id="configure-key" class="secondary-button" type="button">本次服务使用</button>
+              <button id="configure-key" class="secondary-button" type="button">保存到本次服务</button>
             </div>
             <div id="configured-key-row" class="status-row" hidden>
               <span class="key-status">已在服务内存中配置</span>
               <button id="clear-key" class="secondary-button" type="button">清除 Key</button>
             </div>
-            <p class="key-note">Key 仅保存在当前服务进程内存中。DeepSeek 模式会把模型上下文和相关文件内容发送到所配置的模型服务。</p>
+            <p id="key-note" class="key-note">Key 仅保存在当前服务进程内存中。DeepSeek 模式会把模型上下文和相关文件内容发送到所配置的模型服务。</p>
+            <p id="key-error" class="field-error" role="alert" hidden></p>
           </section>
         </fieldset>
 
@@ -107,13 +129,18 @@
           <textarea
             id="goal-input"
             class="goal-input"
+            name="goal"
+            autocomplete="off"
             maxlength="1000"
-            placeholder="可以直接输入目标，或从右侧选择一个标准演示"
+            aria-describedby="goal-help goal-error"
+            placeholder="例如：阅读工作区资料并总结这个 demo…"
           ></textarea>
+          <p id="goal-help" class="field-help">说明想得到的结果，不需要指定 Agent 应调用哪些工具。</p>
+          <p id="goal-error" class="field-error" role="alert" hidden></p>
         </div>
 
         <footer class="launch-footer">
-          <p>同一时间只允许一个任务运行。提交成功后将自动进入过程查看。</p>
+          <p id="start-run-help">同一时间只允许一个任务运行。</p>
           <button id="start-run" class="primary-button start-button" type="button">开始运行 →</button>
         </footer>
       </section>
@@ -122,7 +149,7 @@
         <section class="card side-card">
           <div class="status-row">
             <h2 class="section-title">服务状态</h2>
-            <span id="service-status" class="status-pill">Ready</span>
+            <span id="service-status" class="status-pill" role="status" aria-live="polite">Ready</span>
           </div>
           <ul class="mini-list">
             <li><span class="mini-index">1</span><span>本地服务仅监听 <code>127.0.0.1</code>。</span></li>
@@ -134,7 +161,7 @@
         <section id="current-run-card" class="card side-card" hidden>
           <div class="status-row">
             <h2 class="section-title">当前运行</h2>
-            <span id="current-run-status" class="status-pill running">Running</span>
+            <span id="current-run-status" class="status-pill running" role="status" aria-live="polite">Running</span>
           </div>
           <p id="current-run-goal" class="section-copy current-run-goal"></p>
           <button class="secondary-button" type="button" data-route="trace">进入过程查看</button>
@@ -180,7 +207,7 @@
     </div>
   </main>
 
-  <main id="trace-page" class="viewer-shell" data-page="trace" hidden>
+  <main id="trace-page" class="viewer-shell" data-page="trace" tabindex="-1" hidden>
     <section data-trace-viewer-root class="shell">
       <header class="status">
         <div>
@@ -234,7 +261,7 @@
             <p>按 Agentic Loop 分组</p>
           </div>
           <p id="selected-task-label" class="selected-task-label" hidden></p>
-          <ol id="round-list" class="round-list"><li class="empty">等待 Trace 事件...</li></ol>
+          <ol id="round-list" class="round-list"><li class="empty">等待 Trace 事件…</li></ol>
         </nav>
         <aside class="detail">
           <div class="panel-heading">
@@ -247,14 +274,21 @@
     </section>
   </main>
 
-  <main id="history-page" class="page" data-page="history" hidden>
+  <main id="history-page" class="page" data-page="history" tabindex="-1" hidden>
     <header class="page-heading">
       <p class="eyebrow">Saved Run Records</p>
       <h1>历史运行</h1>
       <p>只读加载已经保存的 run record。历史运行不能审批权限、重新执行、删除或修改。</p>
     </header>
     <div class="history-layout">
-      <section class="card"><ol id="history-list" class="history-list"></ol></section>
+      <section class="card history-list-card" aria-labelledby="history-list-title">
+        <div class="history-list-heading">
+          <h2 id="history-list-title">已保存运行</h2>
+          <span id="history-count" class="history-count">0 条</span>
+        </div>
+        <ol id="history-list" class="history-list"></ol>
+        <button id="history-more" class="secondary-button history-more" type="button" hidden>显示更多</button>
+      </section>
       <section id="history-detail" class="card history-detail">
         <p class="eyebrow">Selected Run</p>
         <h2 id="history-title">选择一条历史运行</h2>
@@ -269,24 +303,28 @@
     </div>
   </main>
 
-  <div id="permission-backdrop" class="drawer-backdrop" inert></div>
+  <div id="permission-backdrop" class="drawer-backdrop" aria-hidden="true"></div>
   <aside
     id="permission-drawer"
     class="permission-drawer"
+    role="dialog"
+    aria-modal="true"
     aria-labelledby="permission-title"
+    aria-describedby="permission-description"
     aria-hidden="true"
+    tabindex="-1"
     inert
   >
     <div class="drawer-heading">
       <div>
         <p class="eyebrow">Permission Required</p>
         <h2 id="permission-title">需要你的批准</h2>
-        <p>这是当前活动运行的权限申请。历史回放不能产生或处理权限。</p>
+        <p id="permission-description">这是当前活动运行的权限申请。关闭抽屉不会拒绝；历史回放不能处理权限。</p>
       </div>
       <button id="close-permission" class="icon-button" type="button" aria-label="关闭权限抽屉">×</button>
     </div>
     <div class="permission-type">
-      <span class="permission-symbol">›_</span>
+      <span class="permission-symbol" aria-hidden="true">›_</span>
       <div><strong id="permission-tool">—</strong><span id="permission-run">当前运行</span></div>
     </div>
     <section class="permission-detail"><strong>申请原因</strong><p id="permission-reason"></p></section>
@@ -300,7 +338,7 @@
     </div>
   </aside>
 
-  <script src="./trace_viewer_core.js?v=1.0"></script>
-  <script src="./web_agent.js?v=1.0"></script>
+  <script src="./trace_viewer_core.js?v=1.1"></script>
+  <script src="./web_agent.js?v=1.1"></script>
 </body>
 </html>

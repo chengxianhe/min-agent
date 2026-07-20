@@ -1,4 +1,4 @@
-# min-agent-demo 项目规则
+# Min Agent 项目规则
 
 ## 项目目标
 
@@ -229,6 +229,22 @@ V1.0 不改变 AgentLoop、ToolRegistry、任务计划、任务产物、workspac
 - Web 页面变更必须完成真实浏览器验收；源码结构测试不能报告为浏览器 PASS。
 - Key 泄漏扫描属于 V1.0 验收。
 
+## V1.1 边界
+
+V1.1 只优化 V1.0 本地 Web Agent 的前端体验：统一视觉语言、强化 Agent 机制阅读路径、补齐表单与权限抽屉的可访问性、改善异步反馈、历史记录可读性和窄屏体验。
+
+V1.1 不改变 AgentLoop、ToolRegistry、HTTP API、SSE 事件、任务计划、任务产物、workspace、write_file、run_command、Key 存储或历史只读语义。
+
+## V1.1 前端规则
+
+- 页面主题是“本地 Agent 机制观察台”，核心任务是让使用者安全发起任务并理解 `Goal -> Decide -> Tool -> Observe` 的真实执行路径。
+- 生产页面的既有关键 ID、API 路径和 TraceEvent 消费逻辑保持兼容；可以调整 HTML 语义、视觉层级和 Viewer 外壳，但不能伪造运行状态或把 Viewer 变成控制器。
+- 导航必须可深链接；表单必须具备可访问名称、明确错误和请求中状态；权限抽屉必须约束焦点并保持“关闭不等于拒绝”。
+- 历史记录超过首屏容量时分批展示，日期使用本地化格式；空状态和异常状态必须给出下一步。
+- 所有交互具备 `:focus-visible`，动画遵守 `prefers-reduced-motion`，390px 窄屏不得产生可见水平溢出。
+- V1.1 不引入前端框架、外部 CDN、在线字体、浏览器持久化存储或新的全局依赖。
+- 页面改动完成后必须重新执行最新 Web Interface Guidelines 审查、全量 `unittest`、真实浏览器桌面与 390px 验收，并检查 console error。
+
 ## V0.3 安全规则
 
 - `list_dir` 和 `read_file` 都只能访问指定 workspace 内路径。
@@ -267,10 +283,16 @@ V1.0 不改变 AgentLoop、ToolRegistry、任务计划、任务产物、workspac
 ## 目录约定
 
 ```text
-min-agent-demo/
+min-agent/
   AGENTS.md
   README.md
   pyproject.toml
+  .agents/
+    skills/
+      <skill-name>/
+        SKILL.md
+        agents/
+          openai.yaml
   src/
     min_agent/
       __init__.py
@@ -304,6 +326,13 @@ min-agent-demo/
 ```
 
 当前初始化阶段可以先创建最小占位文件。后续实现时再补齐具体模块。
+
+项目级 Skill 约定：
+
+- `.agents/skills/` 只存放与本项目直接相关、需要随项目边界生效的 Skill，不作为个人全局 Skill 仓库。
+- 第三方 Skill 保留上游目录结构和许可证文件；本项目的 Codex 调用策略单独写入各 Skill 的 `agents/openai.yaml`，不改写上游 `SKILL.md`。
+- 第三方 Skill 默认设置 `policy.allow_implicit_invocation: false`，仅通过 `$skill-name` 或 Skill 选择器手动触发；确需隐式调用时必须先修改本规则并说明触发边界。
+- 更新第三方 Skill 前先检查上游差异，更新后重新验证调用策略、文件范围和工作区状态，不自动覆盖本地策略文件。
 
 ## Workspace 边界
 
@@ -379,7 +408,7 @@ docs/superpowers/v0.6/
 
 - `main` 只代表已经验收完成的版本。
 - 每个新版本从最新 `main` 创建版本分支。
-- 版本分支统一命名为 `codex/min-agent-demo-vX.Y`，例如 `codex/min-agent-demo-v1.0`。
+- 版本分支统一命名为 `codex/min-agent-vX.Y`，例如 `codex/min-agent-v1.1`。
 - 旧的 `v2`、`v3`、`v4` 这类命名只作为历史遗留，不再继续使用。
 - 版本开发、测试、浏览器验收和文档收尾都在版本分支完成。
 - tag 只在最终验收完成后再打，避免 tag 指向未完成验收的中间状态。
