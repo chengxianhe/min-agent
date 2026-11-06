@@ -19,6 +19,8 @@ Thumbs.db
 
 # Runs — keep directory, ignore generated records
 runs/*.json
+runs/chat/
+runs/web/
 
 # Demo workspace generated files
 examples/workspace/summary*.md

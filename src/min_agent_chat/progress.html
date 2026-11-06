@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Min Agent 任务进度</title>
+<style>
+:root{color-scheme:light dark;font:14px/1.65 system-ui,sans-serif}body{margin:0;padding:20px;color:var(--color-text-primary,#23252b);background:var(--color-background-primary,#fff)}
+header{display:flex;gap:12px;align-items:center;justify-content:space-between}h1{font-size:18px;margin:0}p{margin:10px 0}.muted{color:#71757d;font-size:12px}
+#status{padding:3px 10px;background:#eceff3;color:#303644;border-radius:20px;white-space:nowrap}#goal{font-weight:600;overflow-wrap:anywhere}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;background:rgba(127,127,127,.09);border-radius:10px;padding:12px;max-height:300px;overflow:auto}
+button{font:inherit;padding:7px 14px;border-radius:8px;border:1px solid #aaa;background:transparent;color:inherit;cursor:pointer}button:disabled{opacity:.5;cursor:default}button:focus-visible{outline:3px solid #4383ef;outline-offset:3px}
+.actions{display:flex;gap:10px;flex-wrap:wrap}#error{color:#b33333}ol{padding-left:22px}li{margin:5px 0}.hidden{display:none}
+@media(prefers-color-scheme:dark){body{color:var(--color-text-primary,#eee);background:var(--color-background-primary,#202124)}}
+</style>
+<header><h1>Min Agent</h1><span id="status">等待数据</span></header>
+<p class="muted">Fake 演示 · 独立示例工作区 · 不调用真实模型</p>
+<p id="goal">连接任务进度中…</p><p id="step"></p><ol id="tasks"></ol>
+<section id="permission" class="hidden"><strong>需要你的确认</strong><pre id="permission-details"></pre></section>
+<section id="answer" class="hidden"><strong>运行结果</strong><pre id="answer-text"></pre></section>
+<p id="error" role="alert"></p>
+<div class="actions"><button id="refresh" disabled>刷新进度</button><button id="confirm" class="hidden">在聊天中确认操作</button></div>
+<p class="muted" id="foot">这里只展示实际运行记录；历史回放不会执行工具。</p>
+<script>
+"use strict";
+const $=id=>document.getElementById(id), pending=new Map();let seq=0,run=null,connected=false,hostOrigin=null;
+const labels={running:"执行中",waiting_permission:"等待你确认",completed:"已完成",failed:"失败",interrupted:"已中断"};
+function rpc(method,params){return new Promise((resolve,reject)=>{const id=++seq;const timer=setTimeout(()=>{pending.delete(id);reject(Error("客户端没有响应，请在聊天中查询任务。"));},15000);pending.set(id,{resolve,reject,timer});parent.postMessage({jsonrpc:"2.0",id,method,params},hostOrigin||"*");});}
+function show(data){if(!data||!data.run_id)return;run=data;$("status").textContent=labels[data.status]||data.status;$("goal").textContent=data.goal;$("step").textContent=`${data.latest_step} · 已记录 ${data.event_count} 个事件`;$("tasks").replaceChildren();for(const t of data.tasks||[]){const li=document.createElement("li");li.textContent=`${t.title||t.task_id} — ${labels[t.status]||t.status}`;$("tasks").append(li);}$("permission").classList.toggle("hidden",!data.permission);$("confirm").classList.toggle("hidden",!data.permission);$("permission-details").textContent=data.permission?JSON.stringify(data.permission,null,2):"";$("answer").classList.toggle("hidden",!data.final_answer);$("answer-text").textContent=data.final_answer||"";$("refresh").disabled=!connected;$("foot").textContent=`任务 ${data.run_id} · 手动刷新，不进行后台轮询`;}
+function unpack(result){if(result.isError)throw Error(result.content?.find(c=>c.type==="text")?.text||"查询失败");return result.structuredContent;}
+window.addEventListener("message",event=>{if(event.source!==parent||!event.data||event.data.jsonrpc!=="2.0")return;if(hostOrigin&&event.origin!==hostOrigin)return;const m=event.data;if(m.id&&pending.has(m.id)){if(!hostOrigin&&event.origin!=="null")hostOrigin=event.origin;const p=pending.get(m.id);clearTimeout(p.timer);pending.delete(m.id);m.error?p.reject(Error(m.error.message)):p.resolve(m.result);return;}if(m.method==="ui/notifications/tool-result"){try{show(unpack(m.params));}catch(e){$("error").textContent=e.message;}}});
+$("refresh").onclick=async()=>{$("refresh").disabled=true;$("error").textContent="";try{show(unpack(await rpc("tools/call",{name:"get_demo",arguments:{run_id:run.run_id}})));}catch(e){$("error").textContent=e.message;}finally{$("refresh").disabled=!connected;}};
+$("confirm").onclick=async()=>{if(!run?.permission)return;$("confirm").disabled=true;try{await rpc("ui/message",{role:"user",content:[{type:"text",text:`请为 Min Agent 任务 ${run.run_id} 的权限申请 ${run.permission.permission_id} 打开确认表单，让我决定是否执行。`}]});$("error").textContent="已请求在聊天中打开确认表单，操作尚未批准。";}catch(e){$("error").textContent=e.message;}finally{$("confirm").disabled=false;}};
+(async()=>{try{const result=await rpc("ui/initialize",{appInfo:{name:"Min Agent Progress",version:"0.1.0"},appCapabilities:{},protocolVersion:"2026-01-26"});connected=true;parent.postMessage({jsonrpc:"2.0",method:"ui/notifications/initialized",params:{}},hostOrigin||"*");$("refresh").disabled=!run;}catch(e){$("error").textContent=e.message;}})();
+</script></html>
