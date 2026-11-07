@@ -6,6 +6,8 @@ import os
 import tempfile
 import time
 import uuid
+
+from .history import update_history
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -70,6 +72,7 @@ class ProgressStore:
         finally:
             if os.path.exists(name):
                 os.unlink(name)
+        update_history(self.directory, state)
         return state
 
     def begin(self, title: str, action: str, replace: bool = False) -> dict:
@@ -79,12 +82,14 @@ class ProgressStore:
             current = self.read()
             if current and current["status"] not in TERMINAL and not replace:
                 raise ValueError("已有任务；请更新原任务，或明确使用 --replace 切换显示的任务")
+            if current:
+                update_history(self.directory, current)
             now = time.time()
             event = {"id": str(uuid.uuid4()), "time": now, "action": action,
                      "detail": "", "status": "running"}
             return self._save({"version": 1, "task_id": str(uuid.uuid4()), "title": title,
                                "status": "running", "action": action, "detail": "",
-                               "updated_at": now, "events": [event]})
+                               "started_at": now, "updated_at": now, "events": [event]})
 
     def update(self, task_id: str, status: str, action: str, detail: str = "") -> dict:
         if status not in STATUSES:

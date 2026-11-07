@@ -39,7 +39,7 @@ struct ProgressState: Decodable {
         let data = try file.read(upToCount: 65_537) ?? Data()
         guard data.count <= 65_536 else { throw CocoaError(.fileReadCorruptFile) }
         let state = try JSONDecoder().decode(ProgressState.self, from: data)
-        guard state.version == 1, UUID(uuidString: state.task_id) != nil,
+        guard state.version == 1, isValidTaskIdentity(state.task_id),
               !state.title.isEmpty, state.title.count <= 80,
               !state.action.isEmpty, state.action.count <= 160,
               state.detail.count <= 1000, state.events.count <= 8,

@@ -7,6 +7,7 @@ struct ToolActivity: Decodable, Identifiable {
     let time: Double
     let duration: Double?
     let parameters: String
+    let category: String?
     let result: String
 }
 

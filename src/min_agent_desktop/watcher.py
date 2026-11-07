@@ -9,7 +9,8 @@ import time
 from pathlib import Path
 
 from .activity import ActivityReader
-from .store import default_directory
+from .store import ProgressStore, default_directory
+from .history import update_history
 
 MAX_LINE = 2 * 1024 * 1024
 
@@ -83,6 +84,7 @@ def main():
     tail = None
     binding = None
     last_content = None
+    last_history_issue = None
     while args.once or os.getppid() == parent:
         try:
             config = json.loads((args.state_dir / "activity-source.json").read_text())
@@ -100,6 +102,22 @@ def main():
         except (OSError, ValueError, KeyError, TypeError):
             reader = tail.reader if tail else ActivityReader("", 0)
             snapshot = reader.snapshot(time.time(), "无法读取已绑定会话；显示的是最后记录。")
+        try:
+            store = ProgressStore(args.state_dir)
+            with store._locked():
+                state = store.read()
+                if state and state.get("source") == "wechat":
+                    snapshot = remote_snapshot(args.state_dir, state)
+                if state:
+                    update_history(args.state_dir, state, snapshot)
+            history_issue = ""
+        except (OSError, ValueError, KeyError, TypeError):
+            history_issue = "历史暂时无法更新，请检查本地记录或任务绑定。已有记录保留。"
+        issue_path = args.state_dir / "history-issue.json"
+        issue_payload = {"error": history_issue}
+        if history_issue != last_history_issue or not issue_path.exists():
+            atomic_json(issue_path, issue_payload)
+            last_history_issue = history_issue
         content = {k: v for k, v in snapshot.items() if k != "checked_at"}
         if content != last_content or args.once:
             atomic_json(args.state_dir / "activity.json", snapshot)
@@ -109,6 +127,23 @@ def main():
         if args.once:
             break
         time.sleep(1)
+
+
+def remote_snapshot(directory, state):
+    """Remote tasks never inherit the locally bound chat's events."""
+    try:
+        with (directory / "wechat-activity.json").open("rb") as stream:
+            raw = stream.read(262145)
+        if len(raw) > 262144:
+            raise ValueError()
+        feed = json.loads(raw)
+        if feed.get("thread_id") != state["task_id"]:
+            raise ValueError()
+        if state["status"] in ("running", "waiting") and time.time() - feed["checked_at"] > 20:
+            feed["error"] = "微信服务没有更新；请检查服务是否仍在运行。"
+        return feed
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return ActivityReader(state["task_id"], 0).snapshot(time.time(), "无法读取此微信任务的记录。")
 
 
 if __name__ == "__main__":

@@ -31,6 +31,7 @@ class ActivityReader:
         self.calls = OrderedDict()
         self.pending = OrderedDict()
         self.commentary = ""
+        self.notes = OrderedDict()
         self.last_event_at = 0.0
         self.turn_active = False
 
@@ -70,8 +71,14 @@ class ActivityReader:
         if not isinstance(item, dict):
             return
         item_type = item.get("type")
-        if item_type == "AgentMessage" and item.get("phase") == "commentary":
-            self.commentary = public_text(item.get("content"))
+        if item_type == "AgentMessage" and item.get("phase") in {"commentary", "final"}:
+            text = public_text(item.get("content"))
+            if item.get("phase") == "commentary":
+                self.commentary = text
+            identifier = str(item.get("id") or at)
+            self.notes[identifier] = {"id": identifier, "time": at, "text": text, "kind": item["phase"]}
+            while len(self.notes) > 30:
+                self.notes.popitem(last=False)
             self.last_event_at = at
             return
         if item_type not in {"CommandExecution", "McpToolCall", "FileChange", "Extension"}:
@@ -112,6 +119,11 @@ class ActivityReader:
             seconds = max(0, (payload["completed_at_ms"] - payload["started_at_ms"]) / 1000)
         self.calls[identifier] = {"id": identifier, "name": clean_text(name, 120), "status": status,
                                   "time": at, "duration": seconds,
+                                  "category": {"CommandExecution": "command", "McpToolCall": "mcp",
+                                               "FileChange": "file", "Extension": "web"}[item_type],
+                                  "started_at": (payload["started_at_ms"] / 1000
+                                      if isinstance(payload.get("started_at_ms"), (int, float))
+                                      and 0 < at - payload["started_at_ms"] / 1000 < 86400 else at),
                                   "parameters": clean_text(parameters, 900),
                                   "result": display_output(parameters, result)}
         self.calls.move_to_end(identifier)
@@ -123,4 +135,4 @@ class ActivityReader:
         return {"version": 1, "thread_id": self.thread_id, "checked_at": checked_at,
                 "last_event_at": self.last_event_at, "error": error,
                 "turn_active": self.turn_active, "commentary": self.commentary,
-                "pending": list(self.pending.values()), "calls": list(self.calls.values())}
+                "notes": list(self.notes.values()), "pending": list(self.pending.values()), "calls": list(self.calls.values())}

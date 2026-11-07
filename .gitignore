@@ -21,6 +21,22 @@ Thumbs.db
 runs/*.json
 runs/chat/
 runs/web/
+runs/wechat/
+
+# Private credentials and connection state, including custom state directories
+.env
+.env.*
+!.env.example
+credentials.json
+auth.json
+connection.json
+verify-code.json
+wechat-source.json
+activity-source.json
+*.sqlite3
+*.sqlite3-*
+*.pem
+*.key
 
 # Demo workspace generated files
 examples/workspace/summary*.md
