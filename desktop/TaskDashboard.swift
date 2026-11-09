@@ -45,6 +45,10 @@ struct TaskDashboard: View {
                 if isCurrent && !activity.issue.isEmpty { notice(activity.issue) }
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
+                        if activity.issue.isEmpty,
+                           let reply = currentConversationReply(activity.feed, threadID: task.thread_id, isCurrent: isCurrent) {
+                            ConversationReplyView(reply: reply)
+                        }
                         switch expanded ? section : "概览" {
                         case "过程": steps(task)
                         case "工具": tools(task)

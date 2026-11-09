@@ -43,14 +43,14 @@ class TranscriptTail:
         self.offset = 0
         self.identity = None
         self.discarding = False
-        self.reader = ActivityReader(thread_id, since)
+        self.reader = ActivityReader(thread_id, since, replay_before=time.time())
 
     def poll(self):
         stat = self.path.stat()
         identity = (stat.st_dev, stat.st_ino)
         if identity != self.identity or stat.st_size < self.offset:
             validate_source(self.path, self.thread_id)
-            self.reader = ActivityReader(self.thread_id, self.since)
+            self.reader = ActivityReader(self.thread_id, self.since, replay_before=time.time())
             self.offset, self.identity, self.discarding = 0, identity, False
         with self.path.open("rb") as stream:
             stream.seek(self.offset)

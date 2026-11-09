@@ -25,13 +25,15 @@ def public_text(content):
 
 
 class ActivityReader:
-    def __init__(self, thread_id, since):
+    def __init__(self, thread_id, since, replay_before=0):
         self.thread_id = thread_id
         self.since = since
         self.calls = OrderedDict()
         self.pending = OrderedDict()
         self.commentary = ""
         self.notes = OrderedDict()
+        self.latest_reply = None
+        self.replay_before = replay_before
         self.last_event_at = 0.0
         self.turn_active = False
 
@@ -71,12 +73,17 @@ class ActivityReader:
         if not isinstance(item, dict):
             return
         item_type = item.get("type")
-        if item_type == "AgentMessage" and item.get("phase") in {"commentary", "final"}:
+        phase = {"commentary": "commentary", "final": "final", "final_answer": "final"}.get(item.get("phase"))
+        if item_type == "AgentMessage" and phase:
             text = public_text(item.get("content"))
-            if item.get("phase") == "commentary":
+            if phase == "commentary":
                 self.commentary = text
             identifier = str(item.get("id") or at)
-            self.notes[identifier] = {"id": identifier, "time": at, "text": text, "kind": item["phase"]}
+            note = {"id": identifier, "time": at, "text": text, "kind": phase,
+                    "replayed": at < self.replay_before}
+            self.notes[identifier] = note
+            if phase == "final":
+                self.latest_reply = note
             while len(self.notes) > 30:
                 self.notes.popitem(last=False)
             self.last_event_at = at
@@ -135,4 +142,5 @@ class ActivityReader:
         return {"version": 1, "thread_id": self.thread_id, "checked_at": checked_at,
                 "last_event_at": self.last_event_at, "error": error,
                 "turn_active": self.turn_active, "commentary": self.commentary,
-                "notes": list(self.notes.values()), "pending": list(self.pending.values()), "calls": list(self.calls.values())}
+                "notes": list(self.notes.values()), "latest_reply": self.latest_reply,
+                "pending": list(self.pending.values()), "calls": list(self.calls.values())}

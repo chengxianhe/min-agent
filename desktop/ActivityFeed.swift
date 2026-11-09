@@ -27,6 +27,7 @@ struct ActivityFeed: Decodable {
     let commentary: String
     let pending: [PendingActivity]
     let calls: [ToolActivity]
+    let latest_reply: ConversationReply?
 
     static func read(from file: URL) throws -> ActivityFeed {
         let handle = try FileHandle(forReadingFrom: file)
@@ -35,7 +36,8 @@ struct ActivityFeed: Decodable {
         guard data.count <= 262_144 else { throw CocoaError(.fileReadCorruptFile) }
         let feed = try JSONDecoder().decode(ActivityFeed.self, from: data)
         guard feed.version == 1, feed.calls.count <= 20, feed.pending.count <= 16,
-              feed.commentary.count <= 900, Set(feed.calls.map(\.id)).count == feed.calls.count,
+              feed.commentary.count <= 900, feed.latest_reply?.isValid != false,
+              Set(feed.calls.map(\.id)).count == feed.calls.count,
               feed.calls.allSatisfy({ $0.name.count <= 150 && $0.parameters.count <= 1000 && $0.result.count <= 1900 })
         else { throw CocoaError(.fileReadCorruptFile) }
         return feed

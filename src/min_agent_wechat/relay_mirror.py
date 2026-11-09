@@ -44,7 +44,8 @@ def command_reply(text, state, feed):
         return overview(state, feed)
     if text in ("结果", "/result"):
         notes = [x for x in feed.get("notes", []) if x.get("kind") == "final"]
-        return "最近公开回复：\n" + (notes[-1]["text"] if notes else "当前没有已记录的最终回复。")
+        latest = feed.get("latest_reply") or (notes[-1] if notes else None)
+        return "最近公开回复：\n" + (latest["text"] if latest else "当前没有已记录的最终回复。")
     return None
 
 
@@ -53,8 +54,9 @@ def mirror(store, state, feed):
     since = float(store.get("since"))
     now = time.time()
     with store.lock, store.db:
-        commentary = [n for n in feed.get("notes", []) if n.get("kind") == "commentary" and n.get("time", 0) >= since]
-        finals = [n for n in feed.get("notes", []) if n.get("kind") == "final" and n.get("time", 0) >= since]
+        live_notes = [n for n in feed.get("notes", []) if not n.get("replayed") and n.get("time", 0) >= since]
+        commentary = [n for n in live_notes if n.get("kind") == "commentary"]
+        finals = [n for n in live_notes if n.get("kind") == "final"]
         candidates = list(finals)
         if commentary and now - float(store.get("last_progress", "0")) >= 20:
             latest = commentary[-1]
